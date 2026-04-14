@@ -1,0 +1,18 @@
+Improvements:
+   Balance Adjustments:
+      - adjusting account balance, only by creating transaction entries.
+      - adjusting funds between budgets only by creating transaction entries.
+
+   Budgets:
+      - Show loader while loading budget on the initial load.
+      - Handle Budget resetting cycles.
+
+
+   Draft settling:
+      - in case of multi transaction settlling, its only taking transaction type. not taking budget and category.
+      - or in case of transfer, its not taking budtet.
+      - or in case of credited, its not taking budget.
+      - check for refund case as well.
+
+   UI:
+      - improve amounts presentation for indian rupees format.
