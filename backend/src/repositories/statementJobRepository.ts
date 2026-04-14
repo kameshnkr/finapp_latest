@@ -70,6 +70,37 @@ export async function failJob(
   );
 }
 
+export async function setAwaitingConfirmation(
+  db: Db,
+  id: string,
+  payload: Record<string, unknown>
+): Promise<void> {
+  await db.query(
+    `UPDATE statement_jobs
+     SET status = 'AWAITING_CONFIRMATION',
+         result = $2,
+         stage_message = 'Awaiting your confirmation',
+         updated_at = now()
+     WHERE id = $1`,
+    [id, JSON.stringify(payload)]
+  );
+}
+
+export async function rejectJob(
+  db: Db,
+  id: string
+): Promise<void> {
+  await db.query(
+    `UPDATE statement_jobs
+     SET status = 'REJECTED',
+         result = NULL,
+         stage_message = 'Import cancelled',
+         updated_at = now()
+     WHERE id = $1`,
+    [id]
+  );
+}
+
 export async function getJob(
   db: Db,
   id: string,

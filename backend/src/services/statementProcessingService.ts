@@ -91,7 +91,7 @@ function normalizeDate(raw: string): string {
   return raw;
 }
 
-function computeFingerprint(
+export function computeFingerprint(
   accountId: bigint,
   date: string,
   amount: string,
@@ -377,10 +377,32 @@ export async function processStatement(
       // Assign global statement_seq after sorting
       .map((t, idx) => ({ ...t, seq: idx }));
 
+    // ── TEST ONLY: drop 2 transactions to force AWAITING_CONFIRMATION ────────
+    // TODO: remove before prod
+    // normalized.splice(0, 2);
+    // ─────────────────────────────────────────────────────────────────────────
+
     const totalExtracted = normalized.length;
 
-    // Balance validation
-    let validationStatus: "SUCCESS" | "REVIEW_REQUIRED" = "SUCCESS";
+    // ── Step 7b: Balance validation + delta classification ───────────────────
+    //
+    // allowed_delta = (total_extracted / 3) * 10
+    //   delta > allowed_delta  → ERROR  (likely missing transactions)
+    //   0 < delta ≤ allowed_delta → WARNING (minor rounding / partial page)
+    //   delta == 0             → OK     (perfect match or no balance info)
+    //
+    // On ERROR or WARNING we pause in AWAITING_CONFIRMATION so the user can
+    // decide whether to insert a balancing dummy transaction or discard.
+
+    let delta = 0;
+    let deltaStatus: "OK" | "WARNING" | "ERROR" = "OK";
+    let allowedDelta = 0;
+    let dummyType: "CREDIT" | "DEBIT" | null = null;
+    // latest date among all extracted transactions (used for dummy transaction date)
+    const latestDate = normalized.reduce(
+      (max, t) => (t.date > max ? t.date : max),
+      normalized[0]?.date ?? ""
+    );
 
     if (openingBalance !== null && closingBalance !== null) {
       const totalCredits = normalized
@@ -391,7 +413,7 @@ export async function processStatement(
         .reduce((sum, t) => sum + parseFloat(t.amount), 0);
 
       const expectedClosing = openingBalance + totalCredits - totalDebits;
-      const diff = expectedClosing - closingBalance;
+      const diff = expectedClosing - closingBalance; // positive → expected > actual → add DEBIT to reconcile
 
       console.log(
         `[statement][job:${jobId}] Balance check:\n` +
@@ -400,17 +422,23 @@ export async function processStatement(
           `  total_debits     : -${totalDebits.toFixed(2)} (${normalized.filter((t) => t.type === "DEBIT").length} txns)\n` +
           `  expected_closing : ${expectedClosing.toFixed(2)}\n` +
           `  actual_closing   : ${closingBalance.toFixed(2)}\n` +
-          `  difference       : ${diff.toFixed(2)} (tolerance ±1)\n` +
+          `  difference       : ${diff.toFixed(2)}\n` +
           `  result           : ${Math.abs(diff) <= 1 ? "✅ PASS" : "❌ MISMATCH"}`
       );
 
       if (Math.abs(diff) > 1) {
-        validationStatus = "REVIEW_REQUIRED";
+        delta = parseFloat(Math.abs(diff).toFixed(2));
+        allowedDelta = parseFloat(((totalExtracted / 3) * 10).toFixed(2));
+        deltaStatus = delta > allowedDelta ? "ERROR" : "WARNING";
+        // If expected > actual: we overcounted credits / undercounted debits → insert DEBIT to reconcile
+        dummyType = diff > 0 ? "DEBIT" : "CREDIT";
+
         const topByAmount = [...normalized]
           .sort((a, b) => parseFloat(b.amount) - parseFloat(a.amount))
           .slice(0, 10);
         console.warn(
-          `[statement][job:${jobId}] ⚠️  Balance mismatch of ${diff.toFixed(2)}. Top 10 transactions by amount:\n` +
+          `[statement][job:${jobId}] ⚠️  Balance mismatch — delta=${delta}, allowedDelta=${allowedDelta}, status=${deltaStatus}, dummyType=${dummyType}\n` +
+            `  Top 10 transactions by amount:\n` +
             topByAmount
               .map(
                 (t) =>
@@ -424,12 +452,10 @@ export async function processStatement(
         `[statement][job:${jobId}] ⚠️  Balance validation skipped — ` +
           `opening=${openingBalance}, closing=${closingBalance} (not found across all pages)`
       );
-      validationStatus = "REVIEW_REQUIRED";
+      // Cannot compute delta; proceed directly to save without confirmation prompt
     }
 
-    // ── Step 8: SAVING — deduplicate and insert ───────────────────────────────
-    await jobRepo.updateJobStatus(pool, jobId, "SAVING", "Saving drafts...");
-
+    // ── Step 8: Build items and deduplicate ───────────────────────────────────
     const items: StatementDraftItem[] = normalized.map((t) => {
       const fp = computeFingerprint(accountId, t.date, t.amount, t.description, t.type);
       return {
@@ -449,6 +475,27 @@ export async function processStatement(
     const skippedItems = items.filter((i) => existing.has(i.fingerprint));
     const duplicatesSkipped = skippedItems.length;
 
+    // ── Step 8b: If delta requires confirmation, pause here ───────────────────
+    if (deltaStatus !== "OK") {
+      await jobRepo.setAwaitingConfirmation(pool, jobId, {
+        pending_transactions: newItems,        // only the non-duplicate ones
+        total_extracted: totalExtracted,
+        duplicates_skipped: duplicatesSkipped,
+        delta,
+        allowed_delta: allowedDelta,
+        delta_status: deltaStatus,
+        dummy_type: dummyType,
+        latest_date: latestDate,
+      });
+      console.log(
+        `[statement][job:${jobId}] ⏸  AWAITING_CONFIRMATION — delta=${delta} (allowed=${allowedDelta}), status=${deltaStatus}, pendingToInsert=${newItems.length}`
+      );
+      return;
+    }
+
+    // ── Step 9: SAVING — insert drafts ────────────────────────────────────────
+    await jobRepo.updateJobStatus(pool, jobId, "SAVING", "Saving drafts...");
+
     // Sample log — one inserted and one skipped for quick visual verification
     const sampleInserted = newItems[0];
     const sampleSkipped = skippedItems[0];
@@ -465,16 +512,16 @@ export async function processStatement(
 
     const totalInserted = await txRepo.insertStatementDrafts(pool, userId, accountId, newItems);
 
-    // ── Step 9: COMPLETED ─────────────────────────────────────────────────────
+    // ── Step 10: COMPLETED ────────────────────────────────────────────────────
     await jobRepo.completeJob(pool, jobId, {
       total_extracted: totalExtracted,
       total_inserted: totalInserted,
       duplicates_skipped: duplicatesSkipped,
-      validation_status: validationStatus,
+      validation_status: "SUCCESS",
     });
 
     console.log(
-      `[statement][job:${jobId}] ✅ Done — extracted=${totalExtracted} (raw=${totalExtractedRaw}), inserted=${totalInserted}, skipped=${duplicatesSkipped}, validation=${validationStatus}`
+      `[statement][job:${jobId}] ✅ Done — extracted=${totalExtracted} (raw=${totalExtractedRaw}), inserted=${totalInserted}, skipped=${duplicatesSkipped}`
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown processing error";

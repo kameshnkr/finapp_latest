@@ -242,6 +242,23 @@ class FinappApi {
     return StatementJobDto.fromStatusJson(j);
   }
 
+  Future<void> confirmStatement({
+    required String jobId,
+    required bool createDummy,
+  }) async {
+    await _client.postJson(
+      '/api/statements/confirm',
+      body: {'job_id': jobId, 'create_dummy': createDummy},
+    );
+  }
+
+  Future<void> rejectStatement(String jobId) async {
+    await _client.postJson(
+      '/api/statements/reject',
+      body: {'job_id': jobId},
+    );
+  }
+
   Future<void> createBudget({
     required String name,
     String resetType = 'manual',

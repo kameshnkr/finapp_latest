@@ -201,11 +201,13 @@ class StatementJobDto {
     this.message,
     this.result,
     this.errorMessage,
+    this.confirmationData,
   });
 
   final String jobId;
 
   /// UPLOADING | PROCESSING | VALIDATING | SAVING | COMPLETED | FAILED
+  /// | AWAITING_CONFIRMATION | REJECTED
   final String status;
 
   /// Progress message for in-progress states
@@ -217,6 +219,9 @@ class StatementJobDto {
   /// Present when status == FAILED
   final String? errorMessage;
 
+  /// Present when status == AWAITING_CONFIRMATION
+  final StatementConfirmationDataDto? confirmationData;
+
   factory StatementJobDto.fromUploadJson(Map<String, dynamic> j) =>
       StatementJobDto(
         jobId: j['job_id'] as String,
@@ -225,6 +230,7 @@ class StatementJobDto {
 
   factory StatementJobDto.fromStatusJson(Map<String, dynamic> j) {
     final resultMap = j['result'] as Map<String, dynamic>?;
+    final confirmMap = j['confirmation_data'] as Map<String, dynamic>?;
     return StatementJobDto(
       jobId: '',
       status: j['status'] as String,
@@ -232,8 +238,58 @@ class StatementJobDto {
       errorMessage: j['error_message'] as String?,
       result:
           resultMap != null ? StatementJobResultDto.fromJson(resultMap) : null,
+      confirmationData: confirmMap != null
+          ? StatementConfirmationDataDto.fromJson(confirmMap)
+          : null,
     );
   }
+}
+
+/// Data returned when the job is in AWAITING_CONFIRMATION state.
+class StatementConfirmationDataDto {
+  StatementConfirmationDataDto({
+    required this.delta,
+    required this.allowedDelta,
+    required this.deltaStatus,
+    required this.dummyType,
+    required this.latestDate,
+    required this.totalExtracted,
+    required this.duplicatesSkipped,
+    required this.pendingCount,
+  });
+
+  /// Absolute balance gap (₹)
+  final double delta;
+
+  /// Maximum allowed gap before it becomes an ERROR
+  final double allowedDelta;
+
+  /// 'WARNING' or 'ERROR'
+  final String deltaStatus;
+
+  /// Direction of dummy transaction needed: 'CREDIT' or 'DEBIT'
+  final String dummyType;
+
+  /// Latest transaction date in the statement (YYYY-MM-DD)
+  final String latestDate;
+
+  final int totalExtracted;
+  final int duplicatesSkipped;
+
+  /// How many non-duplicate transactions are pending insertion
+  final int pendingCount;
+
+  factory StatementConfirmationDataDto.fromJson(Map<String, dynamic> j) =>
+      StatementConfirmationDataDto(
+        delta: (j['delta'] as num).toDouble(),
+        allowedDelta: (j['allowed_delta'] as num).toDouble(),
+        deltaStatus: j['delta_status'] as String,
+        dummyType: j['dummy_type'] as String? ?? 'DEBIT',
+        latestDate: j['latest_date'] as String? ?? '',
+        totalExtracted: (j['total_extracted'] as num).toInt(),
+        duplicatesSkipped: (j['duplicates_skipped'] as num).toInt(),
+        pendingCount: (j['pending_count'] as num).toInt(),
+      );
 }
 
 class StatementJobResultDto {
@@ -242,6 +298,7 @@ class StatementJobResultDto {
     required this.totalInserted,
     required this.duplicatesSkipped,
     required this.validationStatus,
+    this.dummyInserted = false,
   });
 
   final int totalExtracted;
@@ -251,12 +308,15 @@ class StatementJobResultDto {
   /// 'SUCCESS' | 'REVIEW_REQUIRED'
   final String validationStatus;
 
+  final bool dummyInserted;
+
   factory StatementJobResultDto.fromJson(Map<String, dynamic> j) =>
       StatementJobResultDto(
         totalExtracted: (j['total_extracted'] as num).toInt(),
         totalInserted: (j['total_inserted'] as num).toInt(),
         duplicatesSkipped: (j['duplicates_skipped'] as num).toInt(),
-        validationStatus: j['validation_status'] as String,
+        validationStatus: j['validation_status'] as String? ?? 'SUCCESS',
+        dummyInserted: j['dummy_inserted'] as bool? ?? false,
       );
 }
 

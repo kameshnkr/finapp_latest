@@ -16,7 +16,7 @@ class StatementUploadPage extends StatefulWidget {
   State<StatementUploadPage> createState() => _StatementUploadPageState();
 }
 
-enum _UploadStage { selectAccount, processing, completed, failed }
+enum _UploadStage { selectAccount, processing, awaitingConfirmation, completed, failed }
 
 class _StatementUploadPageState extends State<StatementUploadPage>
     with SingleTickerProviderStateMixin {
@@ -33,6 +33,9 @@ class _StatementUploadPageState extends State<StatementUploadPage>
   String _progressLabel = '';
   StatementJobResultDto? _result;
   String _errorMessage = '';
+  StatementConfirmationDataDto? _confirmationData;
+  bool _createDummy = true;
+  bool _isConfirming = false;
 
   Timer? _pollTimer;
 
@@ -120,6 +123,13 @@ class _StatementUploadPageState extends State<StatementUploadPage>
           _stage = _UploadStage.failed;
           _errorMessage = job.errorMessage ?? 'Processing failed';
         });
+      } else if (job.status == 'AWAITING_CONFIRMATION') {
+        _pollTimer?.cancel();
+        setState(() {
+          _stage = _UploadStage.awaitingConfirmation;
+          _confirmationData = job.confirmationData;
+          _createDummy = true;
+        });
       } else {
         final msg = job.message ?? _labelFor(job.status);
         final parsed = _parseProgress(msg, job.status);
@@ -203,7 +213,64 @@ class _StatementUploadPageState extends State<StatementUploadPage>
       _progressLabel = '';
       _result = null;
       _errorMessage = '';
+      _confirmationData = null;
+      _createDummy = true;
+      _isConfirming = false;
     });
+  }
+
+  Future<void> _onConfirm() async {
+    if (_isConfirming) return;
+    setState(() => _isConfirming = true);
+    try {
+      final app = context.read<AppController>();
+      await app.api.confirmStatement(
+        jobId: _jobId,
+        createDummy: _createDummy,
+      );
+      if (!mounted) return;
+      // Poll once more to get the COMPLETED result
+      await app.refreshTransactions();
+      // Fetch final job result
+      final job = await app.api.getStatementStatus(_jobId);
+      if (!mounted) return;
+      setState(() {
+        _stage = _UploadStage.completed;
+        _result = job.result;
+        _isConfirming = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isConfirming = false;
+        _errorMessage = e.toString();
+        _stage = _UploadStage.failed;
+      });
+    }
+  }
+
+  Future<void> _onReject() async {
+    if (_isConfirming) return;
+    setState(() => _isConfirming = true);
+    try {
+      final app = context.read<AppController>();
+      await app.api.rejectStatement(_jobId);
+      if (!mounted) return;
+      _resetToStart();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Import cancelled. No transactions were added.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isConfirming = false;
+        _errorMessage = e.toString();
+        _stage = _UploadStage.failed;
+      });
+    }
   }
 
   // ── Build ────────────────────────────────────────────────────────────────
@@ -215,6 +282,8 @@ class _StatementUploadPageState extends State<StatementUploadPage>
         return _buildSelectAccount();
       case _UploadStage.processing:
         return _buildProcessing();
+      case _UploadStage.awaitingConfirmation:
+        return _buildAwaitingConfirmation();
       case _UploadStage.completed:
         return _buildCompleted();
       case _UploadStage.failed:
@@ -444,6 +513,209 @@ class _StatementUploadPageState extends State<StatementUploadPage>
         ),
       ),
     );
+  }
+
+  // ── Stage: awaiting confirmation ─────────────────────────────────────────
+
+  Widget _buildAwaitingConfirmation() {
+    final data = _confirmationData;
+    if (data == null) return const SizedBox.shrink();
+
+    final cs = Theme.of(context).colorScheme;
+    final isError = data.deltaStatus == 'ERROR';
+    final accentColor = isError ? AppColors.loss : Colors.amber.shade700;
+    final bgColor = isError
+        ? AppColors.loss.withAlpha(18)
+        : Colors.amber.shade50;
+    final borderColor = isError
+        ? AppColors.loss.withAlpha(80)
+        : Colors.amber.shade300;
+
+    final amountStr =
+        '₹${data.delta % 1 == 0 ? data.delta.toInt() : data.delta.toStringAsFixed(2)}';
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(20, 24, 20, 32),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Icon + headline
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: bgColor,
+                  borderRadius: BorderRadius.circular(AppRadii.sm),
+                  border: Border.all(color: borderColor),
+                ),
+                child: Icon(
+                  isError
+                      ? Icons.error_outline_rounded
+                      : Icons.warning_amber_rounded,
+                  color: accentColor,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      isError ? 'Balance Mismatch Detected' : 'Minor Balance Gap',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w700,
+                            color: accentColor,
+                          ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      isError
+                          ? 'The extracted transactions don\'t balance. Some transactions may be missing.'
+                          : 'A small rounding or partial-page gap was found.',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: cs.onSurfaceVariant,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 20),
+
+          // Stats card
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            decoration: BoxDecoration(
+              color: cs.surfaceContainerLow,
+              borderRadius: BorderRadius.circular(AppRadii.md),
+              border: Border.all(color: AppColors.cardBorder),
+            ),
+            child: Column(
+              children: [
+                _ConfirmStat(
+                  label: 'Transactions found',
+                  value: '${data.totalExtracted}',
+                ),
+                const SizedBox(height: 8),
+                _ConfirmStat(
+                  label: 'Ready to import',
+                  value: '${data.pendingCount}',
+                  valueColor: AppColors.gain,
+                ),
+                if (data.duplicatesSkipped > 0) ...[
+                  const SizedBox(height: 8),
+                  _ConfirmStat(
+                    label: 'Already in drafts (skipped)',
+                    value: '${data.duplicatesSkipped}',
+                    valueColor: cs.onSurfaceVariant,
+                  ),
+                ],
+                const Divider(height: 20),
+                _ConfirmStat(
+                  label: 'Balance gap',
+                  value: amountStr,
+                  valueColor: accentColor,
+                  bold: true,
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 20),
+
+          // Dummy transaction checkbox
+          Container(
+            decoration: BoxDecoration(
+              color: cs.surfaceContainerLow,
+              borderRadius: BorderRadius.circular(AppRadii.md),
+              border: Border.all(color: AppColors.cardBorder),
+            ),
+            child: CheckboxListTile(
+              value: _createDummy,
+              onChanged: _isConfirming
+                  ? null
+                  : (v) => setState(() => _createDummy = v ?? true),
+              title: Text(
+                'Create a $amountStr balance adjustment transaction',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+              ),
+              subtitle: Text(
+                'A ${data.dummyType.toLowerCase()} of $amountStr will be added on ${_formatDate(data.latestDate)} to reconcile the gap.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: cs.onSurfaceVariant,
+                    ),
+              ),
+              controlAffinity: ListTileControlAffinity.leading,
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              activeColor: cs.primary,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(AppRadii.md)),
+            ),
+          ),
+
+          const SizedBox(height: 28),
+
+          // Confirm button
+          FilledButton.icon(
+            onPressed: _isConfirming ? null : _onConfirm,
+            icon: _isConfirming
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.check_rounded, size: 18),
+            label: Text(_isConfirming ? 'Importing...' : 'Confirm Import'),
+            style: FilledButton.styleFrom(
+              minimumSize: const Size.fromHeight(50),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(AppRadii.md)),
+              textStyle:
+                  const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // Discard button
+          OutlinedButton.icon(
+            onPressed: _isConfirming ? null : _onReject,
+            icon: const Icon(Icons.delete_outline_rounded, size: 18),
+            label: const Text('Discard All Transactions'),
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size.fromHeight(48),
+              foregroundColor: cs.error,
+              side: BorderSide(color: cs.error.withAlpha(100)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(AppRadii.md)),
+              textStyle:
+                  const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatDate(String yyyyMmDd) {
+    if (yyyyMmDd.length != 10) return yyyyMmDd;
+    final parts = yyyyMmDd.split('-');
+    if (parts.length != 3) return yyyyMmDd;
+    const months = [
+      '', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+    ];
+    final day = int.tryParse(parts[2]) ?? 0;
+    final month = int.tryParse(parts[1]) ?? 0;
+    final year = parts[0];
+    if (month < 1 || month > 12) return yyyyMmDd;
+    return '$day ${months[month]} $year';
   }
 
   // ── Stage: completed ─────────────────────────────────────────────────────
@@ -837,6 +1109,43 @@ class _ValidationWarning extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _ConfirmStat extends StatelessWidget {
+  const _ConfirmStat({
+    required this.label,
+    required this.value,
+    this.valueColor,
+    this.bold = false,
+  });
+
+  final String label;
+  final String value;
+  final Color? valueColor;
+  final bool bold;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          label,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: cs.onSurfaceVariant,
+              ),
+        ),
+        Text(
+          value,
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: valueColor ?? cs.onSurface,
+                fontWeight: bold ? FontWeight.w700 : FontWeight.w600,
+              ),
+        ),
+      ],
     );
   }
 }

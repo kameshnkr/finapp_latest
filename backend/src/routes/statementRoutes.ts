@@ -60,3 +60,17 @@ statementRouter.get(
     statementController.getStatus(req as AuthedRequest, res)
   )
 );
+
+statementRouter.post(
+  "/confirm",
+  asyncHandler((req, res) =>
+    statementController.confirmStatement(req as AuthedRequest, res)
+  )
+);
+
+statementRouter.post(
+  "/reject",
+  asyncHandler((req, res) =>
+    statementController.rejectStatement(req as AuthedRequest, res)
+  )
+);

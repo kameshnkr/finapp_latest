@@ -211,12 +211,19 @@ CREATE TABLE statement_jobs (
     account_id      BIGINT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
 
     status          TEXT NOT NULL DEFAULT 'UPLOADING'
-                        CHECK (status IN ('UPLOADING', 'PROCESSING', 'VALIDATING', 'SAVING', 'COMPLETED', 'FAILED')),
+                        CHECK (status IN (
+                            'UPLOADING', 'PROCESSING', 'VALIDATING', 'SAVING',
+                            'COMPLETED', 'FAILED',
+                            'AWAITING_CONFIRMATION', 'REJECTED'
+                        )),
 
     -- Human-readable stage message for frontend progress display
     stage_message   TEXT,
 
-    -- JSON result on completion: { total_extracted, total_inserted, duplicates_skipped, validation_status }
+    -- JSON result:
+    --   COMPLETED          → { total_extracted, total_inserted, duplicates_skipped, validation_status, dummy_inserted }
+    --   AWAITING_CONFIRMATION → { pending_transactions[], total_extracted, duplicates_skipped,
+    --                             delta, allowed_delta, delta_status, dummy_type, latest_date }
     result          JSONB,
 
     -- Set on FAILED

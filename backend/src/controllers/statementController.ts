@@ -5,7 +5,9 @@ import { z } from "zod";
 import type { AuthedRequest } from "../middleware/authMiddleware.js";
 import { pool } from "../db/pool.js";
 import * as jobRepo from "../repositories/statementJobRepository.js";
-import { processStatement } from "../services/statementProcessingService.js";
+import * as txRepo from "../repositories/transactionRepository.js";
+import type { StatementDraftItem } from "../repositories/transactionRepository.js";
+import { computeFingerprint, processStatement } from "../services/statementProcessingService.js";
 import { HttpError } from "../utils/errors.js";
 
 const uploadBodySchema = z.object({
@@ -65,10 +67,7 @@ export async function getStatus(
   if (!job) throw new HttpError(404, "Job not found");
 
   if (job.status === "COMPLETED") {
-    res.json({
-      status: "COMPLETED",
-      result: job.result,
-    });
+    res.json({ status: "COMPLETED", result: job.result });
     return;
   }
 
@@ -80,8 +79,129 @@ export async function getStatus(
     return;
   }
 
+  if (job.status === "AWAITING_CONFIRMATION") {
+    const r = job.result as Record<string, unknown>;
+    res.json({
+      status: "AWAITING_CONFIRMATION",
+      confirmation_data: {
+        delta: r["delta"],
+        allowed_delta: r["allowed_delta"],
+        delta_status: r["delta_status"],
+        dummy_type: r["dummy_type"],
+        latest_date: r["latest_date"],
+        total_extracted: r["total_extracted"],
+        duplicates_skipped: r["duplicates_skipped"],
+        pending_count: (r["pending_transactions"] as unknown[])?.length ?? 0,
+      },
+    });
+    return;
+  }
+
+  if (job.status === "REJECTED") {
+    res.json({ status: "REJECTED" });
+    return;
+  }
+
   res.json({
     status: job.status,
     message: job.stage_message ?? job.status,
   });
+}
+
+const confirmBodySchema = z.object({
+  job_id: z.string().min(1),
+  create_dummy: z.boolean(),
+});
+
+export async function confirmStatement(
+  req: AuthedRequest,
+  res: Response
+): Promise<void> {
+  const body = confirmBodySchema.parse(req.body);
+  const job = await jobRepo.getJob(pool, body.job_id, req.userId);
+  if (!job) throw new HttpError(404, "Job not found");
+  if (job.status !== "AWAITING_CONFIRMATION") {
+    throw new HttpError(409, `Job is not awaiting confirmation (status: ${job.status})`);
+  }
+
+  const r = job.result as Record<string, unknown>;
+  const pendingTransactions = r["pending_transactions"] as StatementDraftItem[];
+  const totalExtracted = r["total_extracted"] as number;
+  const duplicatesSkipped = r["duplicates_skipped"] as number;
+  const delta = r["delta"] as number;
+  const dummyType = r["dummy_type"] as "CREDIT" | "DEBIT";
+  const latestDate = r["latest_date"] as string;
+
+  await jobRepo.updateJobStatus(pool, body.job_id, "SAVING", "Saving drafts...");
+
+  // Re-check fingerprints in case a concurrent upload already inserted some
+  const allFingerprints = pendingTransactions.map((i) => i.fingerprint);
+  const existing = await txRepo.findExistingFingerprints(pool, allFingerprints, req.userId);
+  const toInsert = pendingTransactions.filter((i) => !existing.has(i.fingerprint));
+  const extraSkipped = pendingTransactions.length - toInsert.length;
+
+  const totalInserted = await txRepo.insertStatementDrafts(pool, req.userId, job.account_id, toInsert);
+
+  let dummyInserted = 0;
+  if (body.create_dummy && delta > 0 && latestDate) {
+    const dummyDesc = "Balance adjustment";
+    const dummyFp = computeFingerprint(
+      job.account_id,
+      latestDate,
+      delta.toFixed(2),
+      dummyDesc,
+      dummyType
+    );
+    const dummyItem: StatementDraftItem = {
+      direction: dummyType === "CREDIT" ? "credit" : "debit",
+      amount: delta.toFixed(2),
+      description: dummyDesc,
+      descriptionReadable: "Balance adjustment",
+      transactionDate: latestDate,
+      // Use the highest seq among ALL drafts for this account so the dummy
+      // always sorts above (DESC) every real transaction, even on re-uploads.
+      statementSeq: pendingTransactions.reduce((max, t) => Math.max(max, t.statementSeq), totalExtracted - 1) + 1,
+      fingerprint: dummyFp,
+    };
+    // Insert only if not already present (idempotent)
+    const existingDummy = await txRepo.findExistingFingerprints(pool, [dummyFp], req.userId);
+    if (!existingDummy.has(dummyFp)) {
+      await txRepo.insertStatementDrafts(pool, req.userId, job.account_id, [dummyItem]);
+      dummyInserted = 1;
+    }
+  }
+
+  await jobRepo.completeJob(pool, body.job_id, {
+    total_extracted: totalExtracted,
+    total_inserted: totalInserted + dummyInserted,
+    duplicates_skipped: duplicatesSkipped + extraSkipped,
+    validation_status: body.create_dummy ? "SUCCESS" : "REVIEW_REQUIRED",
+    dummy_inserted: dummyInserted > 0,
+  });
+
+  console.log(
+    `[statement][job:${body.job_id}] ✅ Confirmed — inserted=${totalInserted}, dummyInserted=${dummyInserted}, extraSkipped=${extraSkipped}`
+  );
+
+  res.json({ status: "COMPLETED" });
+}
+
+const rejectBodySchema = z.object({
+  job_id: z.string().min(1),
+});
+
+export async function rejectStatement(
+  req: AuthedRequest,
+  res: Response
+): Promise<void> {
+  const body = rejectBodySchema.parse(req.body);
+  const job = await jobRepo.getJob(pool, body.job_id, req.userId);
+  if (!job) throw new HttpError(404, "Job not found");
+  if (job.status !== "AWAITING_CONFIRMATION") {
+    throw new HttpError(409, `Job is not awaiting confirmation (status: ${job.status})`);
+  }
+
+  await jobRepo.rejectJob(pool, body.job_id);
+  console.log(`[statement][job:${body.job_id}] 🚫 Rejected — all pending transactions discarded`);
+  res.json({ status: "REJECTED" });
 }

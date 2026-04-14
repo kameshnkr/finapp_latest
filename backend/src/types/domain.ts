@@ -6,7 +6,9 @@ export type JobStatus =
   | "VALIDATING"
   | "SAVING"
   | "COMPLETED"
-  | "FAILED";
+  | "FAILED"
+  | "AWAITING_CONFIRMATION"
+  | "REJECTED";
 export type TxStatus = "draft" | "settled";
 export type TxSource = "manual" | "gmail" | "statement";
 export type TransactionType = "expense" | "expense_refund" | "transfer";
