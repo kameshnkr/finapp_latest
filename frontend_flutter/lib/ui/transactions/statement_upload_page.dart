@@ -781,13 +781,14 @@ class _StatementUploadPageState extends State<StatementUploadPage>
               width: double.infinity,
               child: FilledButton.icon(
                 onPressed: () {
-                  // Remove the AddDraftFlowScreen from the stack and
-                  // push DraftsFlowScreen directly — same entry point as
-                  // tapping "Drafts" in the bottom bar.
-                  Navigator.of(context).pushAndRemoveUntil(
+                  // Pop back to the TransactionsScreen (already on stack)
+                  // and switch it to the Drafts tab.
+                  Navigator.of(context).popUntil((route) => route.isFirst);
+                  Navigator.of(context).push<void>(
                     MaterialPageRoute<void>(
-                        builder: (_) => const DraftsFlowScreen()),
-                    (route) => route.isFirst,
+                      builder: (_) =>
+                          const TransactionsScreen(initialTab: 1),
+                    ),
                   );
                 },
                 icon: const Icon(Icons.inbox_outlined, size: 18),

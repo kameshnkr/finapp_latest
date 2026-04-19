@@ -1,3 +1,35 @@
+/// Returns a human-readable section label for a YYYY-MM-DD date:
+/// "Today", "Yesterday", "Mon, 18 Apr" (same year), or "Mon, 18 Apr 2025".
+String sectionLabel(String? yyyymmdd) {
+  if (yyyymmdd == null || yyyymmdd.isEmpty) return '—';
+  try {
+    final parts = yyyymmdd.split('-');
+    if (parts.length != 3) return yyyymmdd;
+    final dt = DateTime(
+      int.parse(parts[0]),
+      int.parse(parts[1]),
+      int.parse(parts[2]),
+    );
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final diff = today.difference(dt).inDays;
+    if (diff == 0) return 'Today';
+    if (diff == 1) return 'Yesterday';
+    const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+    ];
+    final wd = weekdays[dt.weekday - 1];
+    final day = dt.day.toString().padLeft(2, '0');
+    final month = months[dt.month - 1];
+    if (dt.year == now.year) return '$wd, $day $month';
+    return '$wd, $day $month ${dt.year}';
+  } catch (_) {
+    return yyyymmdd ?? '—';
+  }
+}
+
 /// Formats a YYYY-MM-DD date string to a short human-readable date.
 /// E.g. "2026-03-29" → "29 Mar 2026"
 String formatDate(String? yyyymmdd) {

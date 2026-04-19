@@ -7,6 +7,229 @@ import 'drafts_page.dart';
 import 'settled_page.dart';
 import 'statement_upload_page.dart';
 
+// ══════════════════════════════════════════════════════════════════════════════
+// Unified Transactions Screen  (Add › Drafts › Settled)
+// ══════════════════════════════════════════════════════════════════════════════
+
+class TransactionsScreen extends StatefulWidget {
+  const TransactionsScreen({super.key, this.initialTab = 0});
+
+  /// 0 = Add Draft, 1 = Drafts, 2 = Settled
+  final int initialTab;
+
+  @override
+  State<TransactionsScreen> createState() => _TransactionsScreenState();
+}
+
+class _TransactionsScreenState extends State<TransactionsScreen>
+    with SingleTickerProviderStateMixin {
+  late TabController _tabCtrl;
+  @override
+  void initState() {
+    super.initState();
+    _tabCtrl = TabController(
+      length: 3,
+      vsync: this,
+      initialIndex: widget.initialTab,
+    );
+  }
+
+  @override
+  void dispose() {
+    _tabCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Transactions'),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(48 + 3),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TabBar(
+                controller: _tabCtrl,
+                indicatorSize: TabBarIndicatorSize.tab,
+                splashBorderRadius: BorderRadius.circular(8),
+                tabs: const [
+                  Tab(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.add_circle_outline_rounded, size: 15),
+                        SizedBox(width: 6),
+                        Text('Add Draft'),
+                      ],
+                    ),
+                  ),
+                  Tab(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.pending_actions_rounded, size: 15),
+                        SizedBox(width: 6),
+                        Text('Drafts'),
+                      ],
+                    ),
+                  ),
+                  Tab(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.task_alt_rounded, size: 15),
+                        SizedBox(width: 6),
+                        Text('Settled'),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const _LoadingBar(),
+            ],
+          ),
+        ),
+      ),
+      body: SafeArea(
+        child: TabBarView(
+          controller: _tabCtrl,
+          // Disable swipe so draft/settled scrolls don't fight tab swipe.
+          physics: const NeverScrollableScrollPhysics(),
+          children: const [
+            _AddTabContent(),
+            DraftsPage(),
+            SettledPage(),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// (Kept for reference — no longer used in navigation)
+class _FlowTabBar extends StatelessWidget {
+  const _FlowTabBar({required this.controller});
+
+  final TabController controller;
+
+  static const _tabs = [
+    (Icons.add_circle_outline_rounded, 'Add'),
+    (Icons.pending_actions_rounded, 'Drafts'),
+    (Icons.task_alt_rounded, 'Settled'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    return ListenableBuilder(
+      listenable: controller,
+      builder: (context, _) {
+        final active = controller.index;
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              for (int i = 0; i < _tabs.length; i++) ...[
+                if (i > 0)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 6),
+                    child: Icon(
+                      Icons.arrow_forward_rounded,
+                      size: 12,
+                      color: cs.outlineVariant,
+                    ),
+                  ),
+                GestureDetector(
+                  onTap: () => controller.animateTo(i),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    curve: Curves.easeInOut,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: active == i
+                          ? cs.primary
+                          : cs.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          _tabs[i].$1,
+                          size: 13,
+                          color: active == i
+                              ? cs.onPrimary
+                              : cs.onSurfaceVariant,
+                        ),
+                        const SizedBox(width: 5),
+                        Text(
+                          _tabs[i].$2,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: active == i
+                                ? FontWeight.w700
+                                : FontWeight.w500,
+                            color: active == i
+                                ? cs.onPrimary
+                                : cs.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+// ── Add tab: Manual / Statement sub-toggle + content ─────────────────────────
+
+class _AddTabContent extends StatefulWidget {
+  const _AddTabContent();
+
+  @override
+  State<_AddTabContent> createState() => _AddTabContentState();
+}
+
+class _AddTabContentState extends State<_AddTabContent> {
+  bool _isStatement = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 36, 12, 0),
+          child: Row(
+            children: [
+              _ModeToggle(
+                isStatement: _isStatement,
+                onChanged: (v) => setState(() => _isStatement = v),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: _isStatement
+              ? const StatementUploadPage()
+              : const AddDraftPage(),
+        ),
+      ],
+    );
+  }
+}
+
 /// Thin top-of-screen loading bar driven by AppController.loading.
 class _LoadingBar extends StatelessWidget implements PreferredSizeWidget {
   const _LoadingBar();

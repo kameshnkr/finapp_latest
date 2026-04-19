@@ -229,7 +229,9 @@ class _AccountBalanceAdjustSheetState
         distributions: dists,
         version: widget.account.version,
       );
-      await app.refreshAccountsBudgets();
+      // Refresh everything so the new adjustment transaction(s) appear in
+      // the settled list immediately when the user navigates there.
+      await app.refreshAll();
       if (!mounted) return;
       Navigator.of(context).pop();
       showTopSnack(context, 'Balance updated');

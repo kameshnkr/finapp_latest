@@ -7,7 +7,53 @@ import '../../data/models/models.dart';
 import '../../state/app_controller.dart';
 import '../../core/date_utils.dart' as du;
 import '../../core/snack_utils.dart';
+import '../../utils/amount_formatter.dart';
 import '../widgets/date_filter_bar.dart';
+// ── Date-section helpers ───────────────────────────────────────────────────────
+
+class _DateHeader {
+  const _DateHeader({
+    required this.dateKey,
+    required this.totalCredit,
+    required this.totalDebit,
+  });
+  final String dateKey;
+  final double totalCredit;
+  final double totalDebit;
+}
+
+/// Builds a flat list of [_DateHeader] and [TransactionDto] objects, grouped by
+/// transaction date with a header preceding each group.
+List<Object> _buildFlatItems(List<TransactionDto> txs) {
+  final result = <Object>[];
+  final grouped = <String, List<TransactionDto>>{};
+  final dateOrder = <String>[];
+
+  for (final tx in txs) {
+    final key = tx.transactionDate ?? tx.createdAt.substring(0, 10);
+    if (!grouped.containsKey(key)) {
+      grouped[key] = [];
+      dateOrder.add(key);
+    }
+    grouped[key]!.add(tx);
+  }
+
+  for (final date in dateOrder) {
+    final group = grouped[date]!;
+    double credit = 0, debit = 0;
+    for (final tx in group) {
+      final amt = double.tryParse(tx.amount) ?? 0;
+      if (tx.direction == 'credit') {
+        credit += amt;
+      } else {
+        debit += amt;
+      }
+    }
+    result.add(_DateHeader(dateKey: date, totalCredit: credit, totalDebit: debit));
+    result.addAll(group);
+  }
+  return result;
+}
 
 class SettledPage extends StatefulWidget {
   const SettledPage({super.key});
@@ -48,13 +94,15 @@ class _SettledPageState extends State<SettledPage> {
     final list = app.settled;
     final cs = Theme.of(context).colorScheme;
 
-    // Extra item at the end shows a loading indicator while fetching more.
+    final flatItems = _buildFlatItems(list);
     final itemCount =
-        list.length + (app.settledPage.isLoadingMore ? 1 : 0);
+        flatItems.length + (app.settledPage.isLoadingMore ? 1 : 0);
 
     return Column(
       children: [
-        const DateFilterBar(),
+        // ── Filter row ────────────────────────────────────────────────────
+        FilterRow(app: app),
+
         if (list.isEmpty && !app.settledPage.isLoadingMore)
           Expanded(
             child: Center(
@@ -79,7 +127,7 @@ class _SettledPageState extends State<SettledPage> {
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
               itemCount: itemCount,
               itemBuilder: (context, i) {
-                if (i == list.length) {
+                if (i == flatItems.length) {
                   return const Padding(
                     padding: EdgeInsets.symmetric(vertical: 14),
                     child: Center(
@@ -91,7 +139,11 @@ class _SettledPageState extends State<SettledPage> {
                     ),
                   );
                 }
-                final t = list[i];
+                final item = flatItems[i];
+                if (item is _DateHeader) {
+                  return _DateSectionHeader(header: item);
+                }
+                final t = item as TransactionDto;
                 final editing = _editingId == t.id;
                 return _SettledCard(
                   tx: t,
@@ -106,6 +158,53 @@ class _SettledPageState extends State<SettledPage> {
             ),
           ),
       ],
+    );
+  }
+}
+
+// ── Date Section Header ────────────────────────────────────────────────────────
+
+class _DateSectionHeader extends StatelessWidget {
+  const _DateSectionHeader({required this.header});
+  final _DateHeader header;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 12, 4, 4),
+      child: Row(
+        children: [
+          Text(
+            du.sectionLabel(header.dateKey),
+            style: theme.textTheme.labelSmall?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: cs.onSurfaceVariant,
+              letterSpacing: 0.3,
+            ),
+          ),
+          const Spacer(),
+          if (header.totalCredit > 0.005) ...[
+            Text(
+              '+₹${compactAmount(header.totalCredit)}',
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: AppColors.gain,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(width: 8),
+          ],
+          if (header.totalDebit > 0.005)
+            Text(
+              '−₹${compactAmount(header.totalDebit)}',
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: AppColors.loss,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+        ],
+      ),
     );
   }
 }
@@ -182,14 +281,9 @@ class _SettledCardState extends State<_SettledCard> {
   }
 
   Future<void> _save() async {
-    if ((_type == 'expense' ||
-            _type == 'expense_refund' ||
-            _type == 'transfer') &&
-        _budgetId == null) {
-      showTopSnack(context, 'Select a budget');
-      return;
-    }
+    // Category is required only when a budget is explicitly selected.
     if ((_type == 'expense' || _type == 'expense_refund') &&
+        _budgetId != null &&
         _categoryId == null) {
       showTopSnack(context, 'Select a category');
       return;
@@ -257,16 +351,21 @@ class _SettledCardState extends State<_SettledCard> {
   Widget build(BuildContext context) {
     final t = widget.tx;
     final isDebit = t.direction == 'debit';
-    final accentColor =
-        isDebit ? AppColors.loss : AppColors.gain;
+    final isAdjustment = t.transactionType == 'balance_adjustment';
+    final cs = Theme.of(context).colorScheme;
 
-    return AnimatedContainer(
+    // Balance-adjustment cards use a neutral muted accent and no edit action.
+    final accentColor = isAdjustment
+        ? cs.outlineVariant
+        : (isDebit ? AppColors.loss : AppColors.gain);
+
+    final card = AnimatedContainer(
       duration: const Duration(milliseconds: 200),
       margin: const EdgeInsets.only(bottom: 8),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(12),
         child: Material(
-          color: Theme.of(context).colorScheme.surfaceContainerLowest,
+          color: cs.surfaceContainerLowest,
           child: IntrinsicHeight(
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -316,7 +415,8 @@ class _SettledCardState extends State<_SettledCard> {
                           accountName: _accountName(),
                           budgetName: _budgetName(),
                           categoryName: _categoryName(),
-                          onEdit: widget.onEdit,
+                          // Adjustment transactions are read-only system records.
+                          onEdit: isAdjustment ? null : widget.onEdit,
                         ),
                 ),
               ],
@@ -325,6 +425,9 @@ class _SettledCardState extends State<_SettledCard> {
         ),
       ),
     );
+
+    // Render adjustment cards at reduced opacity to convey secondary status.
+    return isAdjustment ? Opacity(opacity: 0.6, child: card) : card;
   }
 }
 
@@ -337,7 +440,7 @@ class _ReadBody extends StatelessWidget {
     required this.accountName,
     required this.budgetName,
     required this.categoryName,
-    required this.onEdit,
+    this.onEdit,
   });
 
   final TransactionDto tx;
@@ -345,7 +448,8 @@ class _ReadBody extends StatelessWidget {
   final String accountName;
   final String budgetName;
   final String categoryName;
-  final VoidCallback onEdit;
+  /// Null for balance-adjustment transactions (non-editable).
+  final VoidCallback? onEdit;
 
   String _typeLabel(String? type) {
     switch (type) {
@@ -355,6 +459,8 @@ class _ReadBody extends StatelessWidget {
         return 'Refund';
       case 'transfer':
         return 'Transfer';
+      case 'balance_adjustment':
+        return 'Adjustment';
       default:
         return type ?? '';
     }
@@ -366,83 +472,77 @@ class _ReadBody extends StatelessWidget {
     final cs = theme.colorScheme;
     final isDebit = tx.direction == 'debit';
 
+    // Build budget › category › note text for row 2.
+    final secondaryParts = <String>[];
+    if (budgetName != '—' && budgetName.isNotEmpty) secondaryParts.add(budgetName);
+    if (categoryName != '—' && categoryName.isNotEmpty) secondaryParts.add(categoryName);
+    final note = tx.note;
+    if (note != null && note.isNotEmpty) secondaryParts.add(note);
+    final secondaryLine = secondaryParts.join(' › ');
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 8, 10, 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Amount + edit button
+          // Row 1: amount  account                       edit icon
           Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Expanded(
-                child: Text(
-                  '${isDebit ? '−' : '+'} ₹${tx.amount}',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    color: accentColor,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: -0.3,
-                  ),
+              Text(
+                '${isDebit ? '−' : '+'} ₹${tx.amount}',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  color: accentColor,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -0.3,
                 ),
               ),
-              GestureDetector(
-                onTap: onEdit,
-                child: Container(
-                  padding: const EdgeInsets.all(5),
-                  decoration: BoxDecoration(
-                    color: cs.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(7),
-                  ),
-                  child: Icon(Icons.edit_outlined,
-                      size: 14, color: cs.onSurfaceVariant),
-                ),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 4),
-
-          // Type badge + budget → category
-          Wrap(
-            spacing: 5,
-            runSpacing: 3,
-            children: [
-              _TypeBadge(label: _typeLabel(tx.transactionType)),
-              if (tx.budgetId != null)
-                _InfoPill(
-                  icon: Icons.account_balance_wallet_outlined,
-                  label: budgetName,
-                ),
-              if (tx.categoryId != null)
-                _InfoPill(
-                  icon: Icons.label_outline_rounded,
-                  label: categoryName,
-                ),
-            ],
-          ),
-
-          const SizedBox(height: 4),
-
-          // Account + note + date (single row)
-          Row(
-            children: [
-              Icon(Icons.account_balance_wallet_outlined,
-                  size: 12, color: cs.onSurfaceVariant),
-              const SizedBox(width: 3),
+              const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  tx.note?.isNotEmpty == true
-                      ? '$accountName  ·  ${tx.note}'
-                      : tx.descriptionReadable?.isNotEmpty == true
-                          ? '$accountName  ·  ${tx.descriptionReadable}'
-                          : tx.description?.isNotEmpty == true
-                              ? '$accountName  ·  ${tx.description}'
-                              : accountName,
+                  accountName,
                   style: theme.textTheme.bodySmall
                       ?.copyWith(color: cs.onSurfaceVariant),
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
+              if (onEdit != null) ...[
+                const SizedBox(width: 6),
+                GestureDetector(
+                  onTap: onEdit,
+                  child: Container(
+                    padding: const EdgeInsets.all(3),
+                    decoration: BoxDecoration(
+                      color: cs.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(5),
+                    ),
+                    child: Icon(Icons.edit_outlined,
+                        size: 12, color: cs.onSurfaceVariant),
+                  ),
+                ),
+              ],
+            ],
+          ),
+
+          const SizedBox(height: 4),
+
+          // Row 2: [type badge]  budget · category · note      date
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              _TypeBadge(label: _typeLabel(tx.transactionType)),
+              if (secondaryLine.isNotEmpty) ...[
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    secondaryLine,
+                    style: theme.textTheme.bodySmall
+                        ?.copyWith(color: cs.onSurfaceVariant),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ] else
+                const Spacer(),
               const SizedBox(width: 6),
               Text(
                 du.formatDate(tx.transactionDate),
@@ -644,12 +744,16 @@ class _EditBody extends StatelessWidget {
               type == 'expense_refund' ||
               type == 'transfer') ...[
             const SizedBox(height: 10),
-            DropdownButtonFormField<String>(
-              initialValue: budgetId,
-              items: budgets
-                  .map((b) =>
-                      DropdownMenuItem(value: b.id, child: Text(b.name)))
-                  .toList(),
+            DropdownButtonFormField<String?>(
+              value: budgetId,
+              items: [
+                const DropdownMenuItem<String?>(
+                  value: null,
+                  child: Text('Unallocated'),
+                ),
+                ...budgets.map((b) =>
+                    DropdownMenuItem<String?>(value: b.id, child: Text(b.name))),
+              ],
               onChanged: onBudgetChanged,
               decoration: const InputDecoration(
                   labelText: 'Budget', isDense: true),

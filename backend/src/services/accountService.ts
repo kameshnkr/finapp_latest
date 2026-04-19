@@ -2,7 +2,9 @@ import { pool } from "../db/pool.js";
 import * as accountRepo from "../repositories/accountRepository.js";
 import * as allocationRepo from "../repositories/allocationRepository.js";
 import * as budgetRepo from "../repositories/budgetRepository.js";
+import * as txRepo from "../repositories/transactionRepository.js";
 import type { AccountRow } from "../repositories/accountRepository.js";
+import type { Direction } from "../types/domain.js";
 import { HttpError } from "../utils/errors.js";
 
 export async function listAccountsWithAllocations(userId: bigint) {
@@ -238,6 +240,26 @@ export async function adjustAccountBalance(
         ? (current + amt).toFixed(2)
         : (current - amt).toFixed(2);
       await allocationRepo.upsertAllocation(client, accountId, d.budgetId, newAlloc);
+    }
+
+    // ── Insert balance-adjustment transaction records ─────────────────────
+    // One record per distribution destination so the user can see exactly
+    // where the balance change was absorbed.
+    const direction: Direction = delta > 0 ? "credit" : "debit";
+
+    if (unallocAmt > 0.005) {
+      await txRepo.insertBalanceAdjustmentTx(
+        client, userId, accountId, direction, unallocAmt.toFixed(2), null
+      );
+    }
+
+    for (const d of body.distributions) {
+      const amt = parseFloat(d.amount);
+      if (amt > 0.005) {
+        await txRepo.insertBalanceAdjustmentTx(
+          client, userId, accountId, direction, d.amount, d.budgetId
+        );
+      }
     }
 
     await client.query("COMMIT");

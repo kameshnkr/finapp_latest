@@ -2,14 +2,141 @@ import 'package:flutter/material.dart';
 
 import '../../core/app_theme.dart';
 import 'package:provider/provider.dart';
+import '../widgets/date_filter_bar.dart';
 
 import '../../core/date_utils.dart' as du;
 import '../../core/snack_utils.dart';
 import '../../data/models/models.dart';
 import '../../state/app_controller.dart';
-import '../widgets/date_filter_bar.dart';
+import '../../utils/amount_formatter.dart';
+// ── Date-section helpers ───────────────────────────────────────────────────────
+
+class _DateHeader {
+  const _DateHeader({
+    required this.dateKey,
+    required this.totalCredit,
+    required this.totalDebit,
+    required this.txIds,
+  });
+  final String dateKey;
+  final double totalCredit;
+  final double totalDebit;
+  /// IDs of all transactions in this date group (used for checkbox state).
+  final List<String> txIds;
+}
+
+/// Builds a flat list for a reverse:true ListView.
+/// Within each date group the transactions come first, header last — so with
+/// reverse rendering the header appears visually above the transactions.
+List<Object> _buildFlatItems(List<TransactionDto> txs) {
+  final result = <Object>[];
+  final grouped = <String, List<TransactionDto>>{};
+  final dateOrder = <String>[];
+
+  for (final tx in txs) {
+    final key = tx.transactionDate ?? tx.createdAt.substring(0, 10);
+    if (!grouped.containsKey(key)) {
+      grouped[key] = [];
+      dateOrder.add(key);
+    }
+    grouped[key]!.add(tx);
+  }
+
+  for (final date in dateOrder) {
+    final group = grouped[date]!;
+    double credit = 0, debit = 0;
+    for (final tx in group) {
+      final amt = double.tryParse(tx.amount) ?? 0;
+      if (tx.direction == 'credit') {
+        credit += amt;
+      } else {
+        debit += amt;
+      }
+    }
+    // Header after transactions so it renders above them in reverse list.
+    result.addAll(group);
+    result.add(_DateHeader(
+      dateKey: date,
+      totalCredit: credit,
+      totalDebit: debit,
+      txIds: group.map((tx) => tx.id).toList(),
+    ));
+  }
+  return result;
+}
+
+class _DateSectionHeader extends StatelessWidget {
+  const _DateSectionHeader({
+    required this.header,
+    this.selectMode = false,
+    this.allGroupSelected = false,
+    this.onToggle,
+  });
+
+  final _DateHeader header;
+  final bool selectMode;
+  final bool allGroupSelected;
+  final VoidCallback? onToggle;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    return GestureDetector(
+      onTap: selectMode ? onToggle : null,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(4, 12, 4, 4),
+        child: Row(
+          children: [
+            Text(
+              du.sectionLabel(header.dateKey),
+              style: theme.textTheme.labelSmall?.copyWith(
+                fontWeight: FontWeight.w700,
+                color: cs.onSurfaceVariant,
+                letterSpacing: 0.3,
+              ),
+            ),
+            const Spacer(),
+            if (header.totalCredit > 0.005) ...[
+              Text(
+                '+₹${compactAmount(header.totalCredit)}',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: AppColors.gain,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(width: 8),
+            ],
+            if (header.totalDebit > 0.005)
+              Text(
+                '−₹${compactAmount(header.totalDebit)}',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: AppColors.loss,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            if (selectMode) ...[
+              const SizedBox(width: 4),
+              Transform.scale(
+                scale: 0.8,
+                child: Checkbox(
+                  value: allGroupSelected,
+                  visualDensity: VisualDensity.compact,
+                  onChanged: (_) => onToggle?.call(),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 enum _Step { type, budget, category }
+
+/// Sentinel passed through onPickBudget when the user selects "Unallocated".
+const _kUnallocated = '__unallocated__';
 
 class DraftsPage extends StatefulWidget {
   const DraftsPage({super.key});
@@ -28,6 +155,7 @@ class _DraftsPageState extends State<DraftsPage> {
   String? _budgetId;
   String? _categoryId;
   String? _activeId;
+  bool _isUnallocated = false;
 
   final ScrollController _scrollCtrl = ScrollController();
   // Guard: only trigger load-more after the user has actually scrolled,
@@ -71,8 +199,21 @@ class _DraftsPageState extends State<DraftsPage> {
       _stype = null;
       _budgetId = null;
       _categoryId = null;
+      _isUnallocated = false;
       _activeId = _selectMode ? null : (forId ?? drafts.first.id);
     });
+    // Scroll to the visual bottom of the reverse:true list (pixels == 0).
+    if (!_selectMode && forId == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_scrollCtrl.hasClients) {
+          _scrollCtrl.animateTo(
+            0,
+            duration: const Duration(milliseconds: 350),
+            curve: Curves.easeOut,
+          );
+        }
+      });
+    }
   }
 
   void _closeSettle() {
@@ -82,6 +223,7 @@ class _DraftsPageState extends State<DraftsPage> {
       _stype = null;
       _budgetId = null;
       _categoryId = null;
+      _isUnallocated = false;
     });
   }
 
@@ -92,9 +234,36 @@ class _DraftsPageState extends State<DraftsPage> {
       _stype = null;
       _budgetId = null;
       _categoryId = null;
+      _isUnallocated = false;
       _selected.clear();
       _selectMode = false;
       _activeId = null;
+    });
+  }
+
+  void _toggleSelectAll(List<TransactionDto> drafts) {
+    setState(() {
+      if (_selected.length == drafts.length) {
+        _selected.clear();
+      } else {
+        _selected.addAll(drafts.map((tx) => tx.id));
+      }
+    });
+  }
+
+  void _toggleDateGroup(String dateKey, List<TransactionDto> drafts) {
+    final groupIds = drafts
+        .where((tx) =>
+            (tx.transactionDate ?? tx.createdAt.substring(0, 10)) == dateKey)
+        .map((tx) => tx.id)
+        .toSet();
+    final allSelected = groupIds.every((id) => _selected.contains(id));
+    setState(() {
+      if (allSelected) {
+        _selected.removeAll(groupIds);
+      } else {
+        _selected.addAll(groupIds);
+      }
     });
   }
 
@@ -108,7 +277,9 @@ class _DraftsPageState extends State<DraftsPage> {
   Future<void> _commit(AppController app, List<String> ids) async {
     final t = _stype;
     if (t == null || ids.isEmpty) return;
-    if (t == 'transfer' && _budgetId == null) return;
+    // For transfer, a null budgetId is only valid when the user explicitly
+    // chose Unallocated; otherwise the budget step hasn't been completed yet.
+    if (t == 'transfer' && _budgetId == null && !_isUnallocated) return;
     try {
       await app.api.settle(
         transactionIds: ids,
@@ -153,42 +324,8 @@ class _DraftsPageState extends State<DraftsPage> {
 
     return Column(
       children: [
-        // ── Date filter ───────────────────────────────────────────────────
-        const DateFilterBar(),
-
-        // ── Toolbar ──────────────────────────────────────────────────────
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-          child: Row(
-            children: [
-              FilterChip(
-                label: const Text('Multi-select'),
-                selected: _selectMode,
-                avatar: Icon(
-                  _selectMode
-                      ? Icons.check_box_outlined
-                      : Icons.check_box_outline_blank,
-                  size: 16,
-                ),
-                showCheckmark: false,
-                onSelected: (v) => setState(() {
-                  _selectMode = v;
-                  if (!v) {
-                    _selected.clear();
-                    if (_settling) _closeSettle();
-                  }
-                }),
-              ),
-              const Spacer(),
-              if (_selectMode && _selected.isNotEmpty)
-                FilledButton.icon(
-                  onPressed: () => _openSettle(drafts),
-                  icon: const Icon(Icons.check_circle_outline, size: 18),
-                  label: Text('Settle ${_selected.length} Items'),
-                ),
-            ],
-          ),
-        ),
+        // ── Filter row ────────────────────────────────────────────────────
+        FilterRow(app: app),
 
         // ── Draft list ────────────────────────────────────────────────────
         Expanded(
@@ -208,13 +345,15 @@ class _DraftsPageState extends State<DraftsPage> {
                     ],
                   ),
                 )
-              : ListView.builder(
+              : Builder(builder: (context) {
+                  final flatItems = _buildFlatItems(drafts);
+                  return ListView.builder(
                   controller: _scrollCtrl,
                   reverse: true,
                   padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
                   // Extra item at index 0 (bottom in reverse:true) shows the
                   // load-more indicator while fetching older drafts.
-                  itemCount: drafts.length +
+                  itemCount: flatItems.length +
                       (app.draftsPage.isLoadingMore ? 1 : 0),
                   itemBuilder: (context, i) {
                     if (app.draftsPage.isLoadingMore && i == 0) {
@@ -229,9 +368,20 @@ class _DraftsPageState extends State<DraftsPage> {
                         ),
                       );
                     }
-                    final txIndex =
+                    final itemIndex =
                         i - (app.draftsPage.isLoadingMore ? 1 : 0);
-                    final tx = drafts[txIndex];
+                    final item = flatItems[itemIndex];
+                    if (item is _DateHeader) {
+                      final allGroupSelected = item.txIds.isNotEmpty &&
+                          item.txIds.every((id) => _selected.contains(id));
+                      return _DateSectionHeader(
+                        header: item,
+                        selectMode: _selectMode,
+                        allGroupSelected: allGroupSelected,
+                        onToggle: () => _toggleDateGroup(item.dateKey, drafts),
+                      );
+                    }
+                    final tx = item as TransactionDto;
                     final isActive = tx.id == _activeId;
                     final isSelected = _selected.contains(tx.id);
                     return _DraftCard(
@@ -261,7 +411,8 @@ class _DraftsPageState extends State<DraftsPage> {
                               : () => _openSettle(drafts, forId: tx.id),
                     );
                   },
-                ),
+                );
+                }),
         ),
 
         // ── Inline settle panel ───────────────────────────────────────────
@@ -270,6 +421,7 @@ class _DraftsPageState extends State<DraftsPage> {
             step: _step,
             stype: _stype,
             budgetId: _budgetId,
+            isUnallocated: _isUnallocated,
             budgets: app.budgets,
             direction: _settleDirection(drafts),
             transferSkipsCategory: _stype == 'transfer',
@@ -280,15 +432,19 @@ class _DraftsPageState extends State<DraftsPage> {
               });
             },
             onPickBudget: (id) {
+              final pickedUnallocated = id == _kUnallocated;
               setState(() {
-                _budgetId = id;
-                if (_stype == 'transfer') {
+                _budgetId = pickedUnallocated ? null : id;
+                _isUnallocated = pickedUnallocated;
+                // Close panel and commit immediately for transfer or unallocated;
+                // otherwise proceed to the category step.
+                if (_stype == 'transfer' || pickedUnallocated) {
                   _settling = false;
                 } else {
                   _step = _Step.category;
                 }
               });
-              if (_stype == 'transfer') {
+              if (_stype == 'transfer' || pickedUnallocated) {
                 final ids = _targetIds(drafts);
                 Future.microtask(() {
                   if (!mounted) return;
@@ -322,25 +478,31 @@ class _DraftsPageState extends State<DraftsPage> {
             onClose: _closeSettle,
           ),
 
-        // ── Start Settling button ─────────────────────────────────────────
-        if (!_settling && !_selectMode && drafts.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
-            child: SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: () => _openSettle(drafts),
-                icon: const Icon(Icons.receipt_long_outlined, size: 18),
-                label: const Text('Start Settling'),
-              ),
-            ),
+        // ── Bottom action bar ─────────────────────────────────────────────
+        if (!_settling)
+          _BottomActionBar(
+            drafts: drafts,
+            selectMode: _selectMode,
+            selectedCount: _selected.length,
+            selectedIds: _selected,
+            onSettleSingle: () => _openSettle(drafts),
+            onEnableMultiSelect: () => setState(() {
+              _selectMode = true;
+            }),
+            onCancelMultiSelect: () => setState(() {
+              _selectMode = false;
+              _selected.clear();
+            }),
+            onSettleSelected: () => _openSettle(drafts),
+            onSelectAll: () => _toggleSelectAll(drafts),
+            onToggleDateGroup: (key) => _toggleDateGroup(key, drafts),
           ),
       ],
     );
   }
 
   String? _budgetNameForId(String? id, List<BudgetDto> budgets) {
-    if (id == null) return null;
+    if (id == null) return _isUnallocated ? 'Unallocated' : null;
     for (final b in budgets) {
       if (b.id == id) return b.name;
     }
@@ -361,6 +523,243 @@ class _DraftsPageState extends State<DraftsPage> {
   }
 }
 
+// ── Bottom Action Bar ──────────────────────────────────────────────────────────
+
+class _BottomActionBar extends StatelessWidget {
+  const _BottomActionBar({
+    required this.drafts,
+    required this.selectMode,
+    required this.selectedCount,
+    required this.selectedIds,
+    required this.onSettleSingle,
+    required this.onEnableMultiSelect,
+    required this.onCancelMultiSelect,
+    required this.onSettleSelected,
+    required this.onSelectAll,
+    required this.onToggleDateGroup,
+  });
+
+  final List<TransactionDto> drafts;
+  final bool selectMode;
+  final int selectedCount;
+  final Set<String> selectedIds;
+  final VoidCallback onSettleSingle;
+  final VoidCallback onEnableMultiSelect;
+  final VoidCallback onCancelMultiSelect;
+  final VoidCallback onSettleSelected;
+  final VoidCallback onSelectAll;
+  final void Function(String dateKey) onToggleDateGroup;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    if (!selectMode) {
+      // ── Normal mode: Settle Single | Settle Multiple ─────────────────
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+        child: Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: drafts.isEmpty ? null : onSettleSingle,
+                icon: const Icon(Icons.arrow_circle_right_outlined, size: 16),
+                label: const Text('Settle Single'),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(0, 46),
+                  elevation: 2,
+                  shadowColor: Colors.black26,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: FilledButton.icon(
+                onPressed: drafts.isEmpty ? null : onEnableMultiSelect,
+                icon: const Icon(Icons.checklist_rounded, size: 16),
+                label: const Text('Settle Multiple'),
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size(0, 46),
+                  elevation: 3,
+                  shadowColor: Colors.black38,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // ── Multi-select mode ─────────────────────────────────────────────
+    final allSelected = selectedCount == drafts.length && drafts.isNotEmpty;
+
+    // Compute totals and unique-day count for selected transactions.
+    double selCredit = 0, selDebit = 0;
+    final selDays = <String>{};
+    for (final tx in drafts) {
+      if (!selectedIds.contains(tx.id)) continue;
+      final amt = double.tryParse(tx.amount) ?? 0;
+      if (tx.direction == 'credit') selCredit += amt;
+      else selDebit += amt;
+      selDays.add(tx.transactionDate ?? tx.createdAt.substring(0, 10));
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerLow,
+        border: Border(top: BorderSide(color: cs.outlineVariant.withAlpha(100))),
+      ),
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // ── Cancel | totals | Select All ─────────────────────────────
+          Row(
+            children: [
+              GestureDetector(
+                onTap: onCancelMultiSelect,
+                child: Icon(Icons.close_rounded,
+                    size: 22, color: cs.onSurfaceVariant),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: selectedCount == 0
+                    ? const SizedBox.shrink()
+                    : Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          RichText(
+                            textAlign: TextAlign.center,
+                            text: TextSpan(
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: cs.onSurfaceVariant,
+                              ),
+                              children: [
+                                const TextSpan(text: 'Selected  '),
+                                if (selCredit > 0.005)
+                                  TextSpan(
+                                    text: '+₹${compactAmount(selCredit)}',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.gain,
+                                    ),
+                                  ),
+                                if (selCredit > 0.005 && selDebit > 0.005)
+                                  const TextSpan(text: '  '),
+                                if (selDebit > 0.005)
+                                  TextSpan(
+                                    text: '−₹${compactAmount(selDebit)}',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.loss,
+                                    ),
+                                  ),
+                                if (selDays.isNotEmpty)
+                                  TextSpan(
+                                    text:
+                                        '  over ${selDays.length} ${selDays.length == 1 ? 'day' : 'days'}',
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.w400),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+              ),
+              const SizedBox(width: 12),
+              _SelectChip(
+                label: 'Select All',
+                icon: allSelected
+                    ? Icons.check_box_rounded
+                    : Icons.check_box_outline_blank_rounded,
+                selected: allSelected,
+                onTap: onSelectAll,
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          // ── Settle Selected button ────────────────────────────────────
+          FilledButton.icon(
+            onPressed: selectedCount > 0 ? onSettleSelected : null,
+            icon: const Icon(Icons.check_circle_outline, size: 18),
+            label: Text(selectedCount > 0
+                ? 'Settle Selected ($selectedCount)'
+                : 'Select transactions to settle'),
+            style: FilledButton.styleFrom(
+              minimumSize: const Size(0, 46),
+              elevation: 4,
+              shadowColor: Colors.black38,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SelectChip extends StatelessWidget {
+  const _SelectChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    this.icon,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  final IconData? icon;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: selected ? cs.primaryContainer : cs.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: selected
+                ? cs.primary.withAlpha(120)
+                : cs.outlineVariant.withAlpha(80),
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (icon != null) ...[
+              Icon(icon,
+                  size: 13,
+                  color: selected ? cs.primary : cs.onSurfaceVariant),
+              const SizedBox(width: 4),
+            ],
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: selected ? cs.primary : cs.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 // ── Settle Panel ───────────────────────────────────────────────────────────────
 
 class _SettlePanel extends StatelessWidget {
@@ -368,6 +767,7 @@ class _SettlePanel extends StatelessWidget {
     required this.step,
     required this.stype,
     required this.budgetId,
+    required this.isUnallocated,
     required this.budgets,
     required this.direction,
     required this.transferSkipsCategory,
@@ -381,6 +781,7 @@ class _SettlePanel extends StatelessWidget {
   final _Step step;
   final String? stype;
   final String? budgetId;
+  final bool isUnallocated;
   final List<BudgetDto> budgets;
   final String? direction;
   /// When true (transfer), flow is Type → Budget only; no category step.
@@ -407,11 +808,27 @@ class _SettlePanel extends StatelessWidget {
         break;
 
       case _Step.budget:
+        // "Unallocated" is prepended as index 0; real budgets follow at index+1.
+        final budgetItems = [
+          'Unallocated',
+          ...budgets.map((b) => b.name),
+        ];
+        final budgetIcons = [
+          Icons.inbox_outlined,
+          ...List.filled(budgets.length, Icons.pie_chart_outline_rounded),
+        ];
+        final selectedBudgetIndex = isUnallocated
+            ? 0
+            : (budgetId != null
+                ? budgets.indexWhere((b) => b.id == budgetId) + 1
+                : -1);
         content = _OptionGrid(
-          items: budgets.map((b) => b.name).toList(),
-          icons: List.filled(budgets.length, Icons.pie_chart_outline_rounded),
-          selectedIndex: budgets.indexWhere((b) => b.id == budgetId),
-          onSelect: (i) => onPickBudget(budgets[i].id),
+          items: budgetItems,
+          icons: budgetIcons,
+          selectedIndex: selectedBudgetIndex,
+          onSelect: (i) => i == 0
+              ? onPickBudget(_kUnallocated)
+              : onPickBudget(budgets[i - 1].id),
         );
         break;
 
@@ -721,6 +1138,13 @@ class _DraftCard extends StatelessWidget {
     return tx.accountId;
   }
 
+  String _noteText() {
+    if (tx.note?.isNotEmpty == true) return tx.note!;
+    if (tx.descriptionReadable?.isNotEmpty == true) return tx.descriptionReadable!;
+    if (tx.description?.isNotEmpty == true) return tx.description!;
+    return '';
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -766,24 +1190,17 @@ class _DraftCard extends StatelessWidget {
                     child: Padding(
                       padding: const EdgeInsets.fromLTRB(12, 8, 10, 8),
                       child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          if (selectMode)
-                            Padding(
-                              padding: const EdgeInsets.only(right: 8),
-                              child: Checkbox(
-                                value: selected,
-                                visualDensity: VisualDensity.compact,
-                                onChanged: (_) => onTap?.call(),
-                              ),
-                            ),
+                          // Main content column
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                // Amount row
+                                // Row 1: amount    description    [settle chips]
                                 Row(
+                                  crossAxisAlignment: CrossAxisAlignment.center,
                                   children: [
                                     Text(
                                       '${isDebit ? '−' : '+'} ₹${tx.amount}',
@@ -794,7 +1211,16 @@ class _DraftCard extends StatelessWidget {
                                         letterSpacing: -0.3,
                                       ),
                                     ),
-                                    if (highlight) const Spacer(),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        _noteText(),
+                                        style: theme.textTheme.bodySmall
+                                            ?.copyWith(
+                                                color: cs.onSurfaceVariant),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
                                     if (highlight)
                                       _SettlePreviewChips(
                                         type: settleType,
@@ -804,38 +1230,55 @@ class _DraftCard extends StatelessWidget {
                                   ],
                                 ),
                                 const SizedBox(height: 3),
-                                // Account + description/note + date row
+                                // Row 2: account with bank icon
                                 Row(
+                                  mainAxisSize: MainAxisSize.min,
                                   children: [
+                                    Icon(Icons.account_balance_wallet_outlined,
+                                        size: 11,
+                                        color: cs.onSurfaceVariant.withAlpha(140)),
+                                    const SizedBox(width: 4),
                                     Flexible(
-                                      child: _MetaChip(
-                                        icon: Icons.account_balance_wallet_outlined,
-                                        label: tx.note?.isNotEmpty == true
-                                            ? '${_accountName()}  ·  ${tx.note}'
-                                            : tx.descriptionReadable?.isNotEmpty == true
-                                                ? '${_accountName()}  ·  ${tx.descriptionReadable}'
-                                                : tx.description?.isNotEmpty == true
-                                                    ? '${_accountName()}  ·  ${tx.description}'
-                                                    : _accountName(),
-                                        overflow: true,
+                                      child: Text(
+                                        _accountName(),
+                                        style: theme.textTheme.bodySmall
+                                            ?.copyWith(
+                                                color: cs.onSurfaceVariant),
+                                        overflow: TextOverflow.ellipsis,
                                       ),
-                                    ),
-                                    const SizedBox(width: 6),
-                                    Text(
-                                      du.formatDate(tx.transactionDate),
-                                      style: theme.textTheme.bodySmall
-                                          ?.copyWith(
-                                              color: cs.onSurfaceVariant
-                                                  .withAlpha(150)),
                                     ),
                                   ],
                                 ),
                               ],
                             ),
                           ),
-                          if (!selectMode && !settling)
-                            Icon(Icons.chevron_right_rounded,
-                                size: 16, color: cs.outlineVariant),
+                          // Right column: action icon at top, date at bottom
+                          Padding(
+                            padding: const EdgeInsets.only(left: 6),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                if (selectMode)
+                                  Checkbox(
+                                    value: selected,
+                                    visualDensity: VisualDensity.compact,
+                                    onChanged: (_) => onTap?.call(),
+                                  )
+                                else if (!settling)
+                                  Icon(Icons.chevron_right_rounded,
+                                      size: 16, color: cs.outlineVariant)
+                                else
+                                  const SizedBox.shrink(),
+                                Text(
+                                  du.formatDate(tx.transactionDate),
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                      color:
+                                          cs.onSurfaceVariant.withAlpha(150)),
+                                ),
+                              ],
+                            ),
+                          ),
                         ],
                       ),
                     ),

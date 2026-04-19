@@ -45,23 +45,32 @@ export async function applySettlement(
   const amt = num(tx.amount);
 
   if (transactionType === "transfer") {
-    if (!budgetId) throw new HttpError(400, "Budget required for transfer");
     if (categoryId !== null) throw new HttpError(400, "Transfer must not include a category");
-    await assertBudgetOwned(client, userId, budgetId);
 
     const delta = tx.direction === "debit" ? -amt : amt;
     const acc = await accountRepo.adjustAccountBalance(client, userId, tx.account_id, delta.toFixed(2));
     if (!acc) throw new HttpError(404, "Account not found");
 
-    // adjustAllocation is the source of truth for funds_available (derived at read time)
-    await allocationRepo.adjustAllocation(client, tx.account_id, budgetId, delta.toFixed(2));
-    await recalcBudgetAggregates(client, budgetId);
+    if (budgetId !== null) {
+      // Settling transfer against a specific budget — move the allocation too.
+      await assertBudgetOwned(client, userId, budgetId);
+      await allocationRepo.adjustAllocation(client, tx.account_id, budgetId, delta.toFixed(2));
+      await recalcBudgetAggregates(client, budgetId);
+    }
+    // When budgetId is null the balance change flows into the unallocated pool implicitly.
     return;
   }
 
-  if (!budgetId) throw new HttpError(400, "Budget required for this type");
+  // expense / expense_refund: settling to unallocated — only adjust account balance.
+  if (budgetId === null) {
+    const delta = transactionType === "expense" ? -amt : amt;
+    const acc = await accountRepo.adjustAccountBalance(client, userId, tx.account_id, delta.toFixed(2));
+    if (!acc) throw new HttpError(404, "Account not found");
+    return;
+  }
+
   if (transactionType === "expense" || transactionType === "expense_refund") {
-    if (!categoryId) throw new HttpError(400, "Category required");
+    if (!categoryId) throw new HttpError(400, "Category required when budget is specified");
   }
 
   await assertBudgetOwned(client, userId, budgetId);
@@ -126,6 +135,11 @@ export async function revertSettlement(
 ): Promise<void> {
   if (tx.status !== "settled" || !tx.transaction_type) return;
 
+  // Balance-adjustment transactions are system records created during account
+  // balance adjustments.  They are not user-editable and should not be reversed
+  // through the normal settlement revert path.
+  if (tx.transaction_type === "balance_adjustment") return;
+
   const amt = num(tx.amount);
   const type = tx.transaction_type;
 
@@ -136,10 +150,18 @@ export async function revertSettlement(
       await allocationRepo.adjustAllocation(client, tx.account_id, tx.budget_id, delta.toFixed(2));
       await recalcBudgetAggregates(client, tx.budget_id);
     }
+    // When budget_id is null the transfer was settled to unallocated — balance reversal above is sufficient.
     return;
   }
 
-  if (!tx.budget_id || !tx.category_id) return;
+  // expense / expense_refund settled to unallocated (budget_id = null): reverse balance only.
+  if (!tx.budget_id) {
+    const delta = type === "expense" ? amt : -amt;
+    await accountRepo.adjustAccountBalance(client, userId, tx.account_id, delta.toFixed(2));
+    return;
+  }
+
+  if (!tx.category_id) return;
 
   if (type === "expense") {
     await accountRepo.adjustAccountBalance(client, userId, tx.account_id, amt.toFixed(2));

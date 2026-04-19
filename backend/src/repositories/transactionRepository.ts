@@ -217,6 +217,33 @@ export async function updateSettledTransaction(
   return r.rows[0] ?? null;
 }
 
+// ── Balance adjustment helpers ───────────────────────────────────────────────
+
+/**
+ * Inserts a settled balance-adjustment transaction directly (no draft stage).
+ * One record is created per distribution destination (budget or unallocated).
+ * direction: 'credit' for balance increases, 'debit' for decreases.
+ * budgetId:  null means the adjustment portion flows to/from unallocated.
+ */
+export async function insertBalanceAdjustmentTx(
+  client: Pool | PoolClient,
+  userId: bigint,
+  accountId: bigint,
+  direction: Direction,
+  amount: string,
+  budgetId: bigint | null
+): Promise<void> {
+  const id = nextId();
+  await client.query(
+    `INSERT INTO transactions (
+       id, user_id, account_id, budget_id, direction, amount, status, source,
+       transaction_type, settled_at, transaction_date
+     ) VALUES ($1, $2, $3, $4, $5, $6::numeric, 'settled', 'manual',
+       'balance_adjustment', now(), CURRENT_DATE)`,
+    [id, userId, accountId, budgetId, direction, amount]
+  );
+}
+
 // ── Statement upload helpers ─────────────────────────────────────────────────
 
 export type StatementDraftItem = {

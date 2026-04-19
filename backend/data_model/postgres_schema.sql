@@ -151,7 +151,7 @@ CREATE TABLE transactions (
     status          TEXT NOT NULL CHECK (status IN ('draft', 'settled')),
     source          TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('manual', 'gmail', 'statement')),
 
-    transaction_type TEXT CHECK (transaction_type IN ('expense', 'expense_refund', 'transfer')),
+    transaction_type TEXT CHECK (transaction_type IN ('expense', 'expense_refund', 'transfer', 'balance_adjustment')),
 
     -- Raw description as it appears in bank statement (statement imports only)
     description         TEXT,

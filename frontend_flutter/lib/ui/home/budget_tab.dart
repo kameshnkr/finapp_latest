@@ -13,27 +13,71 @@ class BudgetTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final budgets = context.watch<AppController>().budgets;
+    final app = context.watch<AppController>();
+    final budgets = app.budgets;
+    final accounts = app.accounts;
+
+    // Total unallocated = Σ(totalBalance - Σ allocations) across all accounts.
+    double totalUnallocated = 0;
+    for (final a in accounts) {
+      final balance = double.tryParse(a.totalBalance) ?? 0;
+      final allocated = a.allocations.fold<double>(
+        0,
+        (sum, alloc) => sum + (double.tryParse(alloc.amount) ?? 0),
+      );
+      totalUnallocated += balance - allocated;
+    }
+
+    final cs = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final availableColor =
+        totalUnallocated < 0 ? AppColors.loss : AppColors.amount;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // ── Fixed top bar ──────────────────────────────────────────────────
+        // ── Unallocated summary + Add button ───────────────────────────────
         Padding(
-          padding: const EdgeInsets.fromLTRB(8, 4, 8, 0),
-          child: Align(
-            alignment: Alignment.centerRight,
-            child: TextButton.icon(
-              onPressed: () => showCreateBudgetSheet(context),
-              icon: const Icon(Icons.add, size: 16),
-              label: const Text('Add New Budget'),
-              style: TextButton.styleFrom(
-                visualDensity: VisualDensity.compact,
+          padding: const EdgeInsets.fromLTRB(18, 8, 8, 4),
+          child: Row(
+            children: [
+              // Compact unallocated info
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.inbox_outlined,
+                      size: 13, color: cs.onSurfaceVariant),
+                  const SizedBox(width: 5),
+                  Text(
+                    'Unallocated',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: cs.onSurfaceVariant,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    compactAmount(totalUnallocated),
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      color: availableColor,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
               ),
-            ),
+              const Spacer(),
+              TextButton.icon(
+                onPressed: () => showCreateBudgetSheet(context),
+                icon: const Icon(Icons.add, size: 16),
+                label: const Text('Add New Budget'),
+                style: TextButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                ),
+              ),
+            ],
           ),
         ),
-        // ── Scrollable list ────────────────────────────────────────────────
+        // ── Scrollable budget list ─────────────────────────────────────────
         Expanded(
           child: budgets.isEmpty
               ? const Center(

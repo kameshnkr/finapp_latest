@@ -11,7 +11,7 @@ export type JobStatus =
   | "REJECTED";
 export type TxStatus = "draft" | "settled";
 export type TxSource = "manual" | "gmail" | "statement";
-export type TransactionType = "expense" | "expense_refund" | "transfer";
+export type TransactionType = "expense" | "expense_refund" | "transfer" | "balance_adjustment";
 
 export type ResetType = "scheduled" | "manual";
 

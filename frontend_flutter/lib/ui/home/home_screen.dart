@@ -115,17 +115,19 @@ class _HomeScreenState extends State<HomeScreen>
                   ),
                 ],
               ),
-              height: 62,
+              height: 72,
               child: Row(
                 children: [
                   // Drafts
                   Expanded(
                     child: _SideAction(
-                      icon: Icons.inbox_outlined,
+                      icon: Icons.pending_actions_rounded,
                       label: 'Drafts',
                       onTap: () => Navigator.of(context).push<void>(
                         MaterialPageRoute<void>(
-                            builder: (_) => const DraftsFlowScreen()),
+                          builder: (_) =>
+                              const TransactionsScreen(initialTab: 1),
+                        ),
                       ),
                     ),
                   ),
@@ -138,7 +140,9 @@ class _HomeScreenState extends State<HomeScreen>
                       child: FilledButton.icon(
                         onPressed: () => Navigator.of(context).push<void>(
                           MaterialPageRoute<void>(
-                              builder: (_) => const AddDraftFlowScreen()),
+                            builder: (_) =>
+                                const TransactionsScreen(initialTab: 0),
+                          ),
                         ),
                         icon: const Icon(Icons.add, size: 18),
                         label: const Text('Add Draft'),
@@ -154,11 +158,13 @@ class _HomeScreenState extends State<HomeScreen>
                   // Settled
                   Expanded(
                     child: _SideAction(
-                      icon: Icons.check_circle_outline_rounded,
+                      icon: Icons.task_alt_rounded,
                       label: 'Settled',
                       onTap: () => Navigator.of(context).push<void>(
                         MaterialPageRoute<void>(
-                            builder: (_) => const SettledFlowScreen()),
+                          builder: (_) =>
+                              const TransactionsScreen(initialTab: 2),
+                        ),
                       ),
                     ),
                   ),
@@ -168,18 +174,19 @@ class _HomeScreenState extends State<HomeScreen>
 
             // ── "Transactions" label sitting on the top border ─────────────
             Positioned(
-              top: 2,
+              top: -1,
               left: 36,
               child: Container(
                 decoration: BoxDecoration(
-                  color: Theme.of(context).scaffoldBackgroundColor,
-                  borderRadius: BorderRadius.circular(4),
+                  color: cs.surfaceContainerHigh,
+                  borderRadius: BorderRadius.circular(6),
                 ),
-                padding: const EdgeInsets.symmetric(horizontal: 5),
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                 child: Text(
                   'Transactions',
                   style: Theme.of(context).textTheme.labelSmall?.copyWith(
                     color: cs.onSurfaceVariant,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
               ),

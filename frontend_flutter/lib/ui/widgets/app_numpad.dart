@@ -29,7 +29,7 @@ class AppNumpad extends StatelessWidget {
                   .map(
                     (k) => Expanded(
                       child: Padding(
-                        padding: const EdgeInsets.all(5),
+                        padding: const EdgeInsets.all(4),
                         child: _NumKey(
                           label: k,
                           isBackspace: k == '⌫',
@@ -94,14 +94,14 @@ class _NumKey extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
         onTap: onTap,
         child: SizedBox(
-          height: 56,
+          height: 46,
           child: Center(
             child: isBackspace
                 ? Icon(Icons.backspace_outlined,
-                    size: 20, color: textColor)
+                    size: 18, color: textColor)
                 : Text(
                     label,
-                    style: theme.textTheme.headlineSmall?.copyWith(
+                    style: theme.textTheme.titleLarge?.copyWith(
                       color: textColor,
                       fontWeight: FontWeight.w500,
                     ),

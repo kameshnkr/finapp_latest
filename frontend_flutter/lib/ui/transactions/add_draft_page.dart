@@ -82,15 +82,16 @@ class _AddDraftPageState extends State<AddDraftPage> {
         // ── Amount display panel ─────────────────────────────────────────
         Expanded(
           flex: 2,
-          child: Center(
+          child: Align(
+            alignment: Alignment.bottomCenter,
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
               // Step dots
               _StepDots(stage: _stage),
-              const SizedBox(height: 20),
+              const SizedBox(height: 12),
 
               // Big amount
               Row(
@@ -98,9 +99,9 @@ class _AddDraftPageState extends State<AddDraftPage> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Padding(
-                    padding: const EdgeInsets.only(top: 8),
+                    padding: const EdgeInsets.only(top: 5),
                     child: Text('₹',
-                        style: theme.textTheme.headlineSmall?.copyWith(
+                        style: theme.textTheme.titleLarge?.copyWith(
                             color: cs.onSurfaceVariant,
                             fontWeight: FontWeight.w300)),
                   ),
@@ -108,7 +109,7 @@ class _AddDraftPageState extends State<AddDraftPage> {
                   Flexible(
                     child: Text(
                       _amount.isEmpty ? '0' : _amount,
-                      style: theme.textTheme.displaySmall?.copyWith(
+                      style: theme.textTheme.headlineLarge?.copyWith(
                         color: amountColor,
                         fontWeight: FontWeight.w700,
                         letterSpacing: -1,
@@ -120,7 +121,7 @@ class _AddDraftPageState extends State<AddDraftPage> {
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
 
               // Context chips — visible after each step is filled
               Wrap(
@@ -159,15 +160,13 @@ class _AddDraftPageState extends State<AddDraftPage> {
       ),
     ),
 
-        Divider(height: 1, color: cs.outlineVariant),
-
         // ── Control surface ──────────────────────────────────────────────
         Expanded(
           flex: 3,
           child: Align(
             alignment: Alignment.bottomCenter,
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
               child: _buildControl(
                 accounts: accounts,
                 hasDigits: hasDigits,
@@ -211,7 +210,7 @@ class _AddDraftPageState extends State<AddDraftPage> {
                 }
               }),
             ),
-            const SizedBox(height: 14),
+            const SizedBox(height: 10),
             // Debit / Credit — full-width, color-filled
             Row(
               children: [
@@ -434,7 +433,7 @@ class _DirectionButton extends StatelessWidget {
           borderRadius: BorderRadius.circular(12),
           onTap: enabled ? onPressed : null,
           child: Container(
-            padding: const EdgeInsets.symmetric(vertical: 14),
+            padding: const EdgeInsets.symmetric(vertical: 10),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
@@ -449,7 +448,7 @@ class _DirectionButton extends StatelessWidget {
                     style: TextStyle(
                       color: enabled ? textColor : Colors.grey,
                       fontWeight: FontWeight.w700,
-                      fontSize: 15,
+                      fontSize: 13,
                     )),
               ],
             ),

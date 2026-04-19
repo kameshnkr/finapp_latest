@@ -116,12 +116,11 @@ export async function settle(req: AuthedRequest, res: Response): Promise<void> {
 
   if (body.transactionType === "transfer") {
     categoryId = null;
-    if (budgetId === null) {
-      throw new HttpError(400, "Budget required for transfer");
-    }
   } else {
-    if (budgetId === null || categoryId === null) {
-      throw new HttpError(400, "Budget and category required for this type");
+    // expense / expense_refund: category is required only when a budget is specified.
+    // Omitting budgetId entirely means settling to the account's unallocated balance.
+    if (budgetId !== null && categoryId === null) {
+      throw new HttpError(400, "Category required when budget is specified");
     }
   }
 
@@ -145,11 +144,11 @@ export async function updateSettled(
   let categoryId: bigint | null = body.categoryId ?? null;
   if (body.transactionType === "transfer") {
     categoryId = null;
-    if (budgetId === null) {
-      throw new HttpError(400, "Budget required for transfer");
+  } else {
+    // expense / expense_refund: category is required only when a budget is specified.
+    if (budgetId !== null && categoryId === null) {
+      throw new HttpError(400, "Category required when budget is specified");
     }
-  } else if (budgetId === null || categoryId === null) {
-    throw new HttpError(400, "Budget and category required for this type");
   }
 
   const updated = await txService.updateSettledTransaction(req.userId, txId, {
