@@ -150,6 +150,7 @@ class _DraftsPageState extends State<DraftsPage> {
   final Set<String> _selected = {};
 
   bool _settling = false;
+  bool _committing = false;
   _Step _step = _Step.type;
   String? _stype;
   String? _budgetId;
@@ -230,6 +231,7 @@ class _DraftsPageState extends State<DraftsPage> {
   void _afterSuccess() {
     setState(() {
       _settling = false;
+      _committing = false;
       _step = _Step.type;
       _stype = null;
       _budgetId = null;
@@ -293,6 +295,7 @@ class _DraftsPageState extends State<DraftsPage> {
       _afterSuccess();
     } catch (e) {
       if (!mounted) return;
+      setState(() => _committing = false);
       showTopSnack(context, 'Error: $e');
     }
   }
@@ -417,7 +420,13 @@ class _DraftsPageState extends State<DraftsPage> {
 
         // ── Inline settle panel ───────────────────────────────────────────
         if (_settling)
-          _SettlePanel(
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 220),
+            switchInCurve: Curves.easeOut,
+            switchOutCurve: Curves.easeIn,
+            child: _committing
+                ? _SettleLoadingPanel(key: const ValueKey('loading'))
+                : _SettlePanel(
             step: _step,
             stype: _stype,
             budgetId: _budgetId,
@@ -433,18 +442,17 @@ class _DraftsPageState extends State<DraftsPage> {
             },
             onPickBudget: (id) {
               final pickedUnallocated = id == _kUnallocated;
+              final isCommit = _stype == 'transfer' || pickedUnallocated;
               setState(() {
                 _budgetId = pickedUnallocated ? null : id;
                 _isUnallocated = pickedUnallocated;
-                // Close panel and commit immediately for transfer or unallocated;
-                // otherwise proceed to the category step.
-                if (_stype == 'transfer' || pickedUnallocated) {
-                  _settling = false;
+                if (isCommit) {
+                  _committing = true; // keep _settling=true so loader shows
                 } else {
                   _step = _Step.category;
                 }
               });
-              if (_stype == 'transfer' || pickedUnallocated) {
+              if (isCommit) {
                 final ids = _targetIds(drafts);
                 Future.microtask(() {
                   if (!mounted) return;
@@ -453,11 +461,10 @@ class _DraftsPageState extends State<DraftsPage> {
               }
             },
             onPickCategory: (id) {
-              // Close panel immediately — commit runs silently in background
               final ids = _targetIds(drafts);
               setState(() {
                 _categoryId = id;
-                _settling = false;
+                _committing = true; // keep _settling=true so loader shows
               });
               _commit(app, ids);
             },
@@ -476,10 +483,12 @@ class _DraftsPageState extends State<DraftsPage> {
               }
             },
             onClose: _closeSettle,
+                key: const ValueKey('panel'),
+          ),
           ),
 
         // ── Bottom action bar ─────────────────────────────────────────────
-        if (!_settling)
+        if (!_settling && drafts.isNotEmpty)
           _BottomActionBar(
             drafts: drafts,
             selectMode: _selectMode,
@@ -760,10 +769,49 @@ class _SelectChip extends StatelessWidget {
   }
 }
 
+// ── Settle Loading Panel ───────────────────────────────────────────────────────
+
+class _SettleLoadingPanel extends StatelessWidget {
+  const _SettleLoadingPanel({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerHigh,
+        border: Border(top: BorderSide(color: cs.outlineVariant)),
+      ),
+      padding: const EdgeInsets.symmetric(vertical: 28),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          SizedBox(
+            width: 18,
+            height: 18,
+            child: CircularProgressIndicator(strokeWidth: 2, color: cs.primary),
+          ),
+          const SizedBox(width: 12),
+          Text(
+            'Saving…',
+            style: TextStyle(
+              fontSize: 13,
+              color: cs.onSurfaceVariant,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 // ── Settle Panel ───────────────────────────────────────────────────────────────
 
 class _SettlePanel extends StatelessWidget {
   const _SettlePanel({
+    super.key,
     required this.step,
     required this.stype,
     required this.budgetId,

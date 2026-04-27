@@ -73,7 +73,7 @@ The API base URL is **fixed at build time**. Use your real backend URL (ngrok HT
 ```bash
 cd frontend_flutter
 flutter pub get
-flutter build apk --release --dart-define=API_BASE=https://your-subdomain.ngrok-free.app
+flutter build apk --release --dart-define=API_BASE=https://uninveigled-eveline-twiggy.ngrok-free.dev
 ```
 
 Output file:

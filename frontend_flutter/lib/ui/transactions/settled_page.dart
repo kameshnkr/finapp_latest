@@ -106,17 +106,19 @@ class _SettledPageState extends State<SettledPage> {
         if (list.isEmpty && !app.settledPage.isLoadingMore)
           Expanded(
             child: Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.task_alt_rounded,
-                      size: 48, color: cs.onSurfaceVariant.withAlpha(100)),
-                  const SizedBox(height: 10),
-                  Text('No settled transactions',
-                      style: TextStyle(
-                          color: cs.onSurfaceVariant,
-                          fontWeight: FontWeight.w500)),
-                ],
+              child: app.loading
+                  ? const CircularProgressIndicator()
+                  : Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.task_alt_rounded,
+                            size: 48, color: cs.onSurfaceVariant.withAlpha(100)),
+                        const SizedBox(height: 10),
+                        Text('No settled transactions',
+                            style: TextStyle(
+                                color: cs.onSurfaceVariant,
+                                fontWeight: FontWeight.w500)),
+                      ],
               ),
             ),
           )

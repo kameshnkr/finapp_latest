@@ -36,9 +36,11 @@ class AccountsTab extends StatelessWidget {
         // ── Scrollable list ────────────────────────────────────────────────
         Expanded(
           child: accounts.isEmpty
-              ? const Center(
-                  child: Text('No accounts yet.',
-                      style: TextStyle(color: Colors.grey)),
+              ? Center(
+                  child: context.watch<AppController>().loading
+                      ? const CircularProgressIndicator()
+                      : const Text('No accounts yet.',
+                          style: TextStyle(color: Colors.grey)),
                 )
               : ListView.builder(
                   padding: AppInsets.screen,

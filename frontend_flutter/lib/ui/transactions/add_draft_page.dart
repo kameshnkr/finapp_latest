@@ -24,6 +24,7 @@ class _AddDraftPageState extends State<AddDraftPage> {
   String? _direction;
   String? _accountId;
   String _note = '';
+  bool _saving = false;
 
   void _reset() => setState(() {
         _stage = _Stage.amount;
@@ -31,6 +32,7 @@ class _AddDraftPageState extends State<AddDraftPage> {
         _direction = null;
         _accountId = null;
         _note = '';
+        _saving = false;
       });
 
   Future<void> _submit() async {
@@ -38,6 +40,7 @@ class _AddDraftPageState extends State<AddDraftPage> {
     final accId = _accountId;
     final dir = _direction;
     if (accId == null || dir == null || _amount.isEmpty) return;
+    setState(() => _saving = true);
     try {
       await app.api.createDraft(
         accountId: accId,
@@ -45,12 +48,13 @@ class _AddDraftPageState extends State<AddDraftPage> {
         amount: _normalizeAmount(_amount),
         note: _note.isEmpty ? null : _note,
       );
-      await app.refreshTransactions();
+      await app.refreshDraftsOnly();
       if (!mounted) return;
       showTopSnack(context, 'Saved to Drafts');
       _reset();
     } catch (e) {
       if (!mounted) return;
+      setState(() => _saving = false);
       showTopSnack(context, 'Error: $e');
     }
   }
@@ -167,10 +171,18 @@ class _AddDraftPageState extends State<AddDraftPage> {
             alignment: Alignment.bottomCenter,
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
-              child: _buildControl(
-                accounts: accounts,
-                hasDigits: hasDigits,
-                cs: cs,
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 220),
+                switchInCurve: Curves.easeOut,
+                switchOutCurve: Curves.easeIn,
+                child: _saving
+                    ? const _SavingIndicator()
+                    : _buildControl(
+                        key: const ValueKey('control'),
+                        accounts: accounts,
+                        hasDigits: hasDigits,
+                        cs: cs,
+                      ),
               ),
             ),
           ),
@@ -188,6 +200,7 @@ class _AddDraftPageState extends State<AddDraftPage> {
   }
 
   Widget _buildControl({
+    Key? key,
     required List<AccountDto> accounts,
     required bool hasDigits,
     required ColorScheme cs,
@@ -306,6 +319,39 @@ class _AddDraftPageState extends State<AddDraftPage> {
           ],
         );
     }
+  }
+}
+
+// ── Saving indicator ───────────────────────────────────────────────────────────
+
+class _SavingIndicator extends StatelessWidget {
+  const _SavingIndicator();
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          width: 32,
+          height: 32,
+          child: CircularProgressIndicator(
+            strokeWidth: 2.5,
+            color: cs.primary,
+          ),
+        ),
+        const SizedBox(height: 14),
+        Text(
+          'Saving…',
+          style: TextStyle(
+            fontSize: 13,
+            color: cs.onSurfaceVariant,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ],
+    );
   }
 }
 

@@ -125,9 +125,28 @@ class AppController extends ChangeNotifier {
     loading = true;
     notifyListeners();
     try {
-      accounts = await _api.fetchAccounts();
-      budgets = await _api.fetchBudgets();
-      await _reloadTransactions();
+      final from = _rangeFrom.toIso8601String();
+      final to = _rangeTo.toIso8601String();
+      final results = await Future.wait([
+        _api.fetchAccounts(),
+        _api.fetchBudgets(),
+        _api.fetchDrafts(from: from, to: to),
+        _api.fetchSettled(from: from, to: to),
+      ]);
+      accounts = results[0] as List<AccountDto>;
+      budgets = results[1] as List<BudgetDto>;
+      final dResult = results[2] as TransactionPageDto;
+      final sResult = results[3] as TransactionPageDto;
+      draftsPage = TxPageState(
+        items: dResult.transactions,
+        nextCursor: dResult.nextCursor,
+        hasMore: dResult.hasMore,
+      );
+      settledPage = TxPageState(
+        items: sResult.transactions,
+        nextCursor: sResult.nextCursor,
+        hasMore: sResult.hasMore,
+      );
     } finally {
       loading = false;
       notifyListeners();
@@ -145,17 +164,41 @@ class AppController extends ChangeNotifier {
     }
   }
 
-  /// Internal: fetch first page of both lists with the current date range.
+  /// Reloads only the drafts list — use after actions that cannot affect settled
+  /// (e.g. creating a draft).
+  Future<void> refreshDraftsOnly() async {
+    loading = true;
+    notifyListeners();
+    try {
+      final from = _rangeFrom.toIso8601String();
+      final to = _rangeTo.toIso8601String();
+      final result = await _api.fetchDrafts(from: from, to: to);
+      draftsPage = TxPageState(
+        items: result.transactions,
+        nextCursor: result.nextCursor,
+        hasMore: result.hasMore,
+      );
+    } finally {
+      loading = false;
+      notifyListeners();
+    }
+  }
+
+  /// Internal: fetch first page of both lists with the current date range (parallel).
   Future<void> _reloadTransactions() async {
     final from = _rangeFrom.toIso8601String();
     final to = _rangeTo.toIso8601String();
-    final dResult = await _api.fetchDrafts(from: from, to: to);
+    final results = await Future.wait([
+      _api.fetchDrafts(from: from, to: to),
+      _api.fetchSettled(from: from, to: to),
+    ]);
+    final dResult = results[0] as TransactionPageDto;
+    final sResult = results[1] as TransactionPageDto;
     draftsPage = TxPageState(
       items: dResult.transactions,
       nextCursor: dResult.nextCursor,
       hasMore: dResult.hasMore,
     );
-    final sResult = await _api.fetchSettled(from: from, to: to);
     settledPage = TxPageState(
       items: sResult.transactions,
       nextCursor: sResult.nextCursor,

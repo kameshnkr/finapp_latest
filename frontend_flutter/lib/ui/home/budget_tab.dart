@@ -37,6 +37,7 @@ class BudgetTab extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         // ── Unallocated summary + Add button ───────────────────────────────
+        if (!app.loading)
         Padding(
           padding: const EdgeInsets.fromLTRB(18, 8, 8, 4),
           child: Row(
@@ -80,9 +81,11 @@ class BudgetTab extends StatelessWidget {
         // ── Scrollable budget list ─────────────────────────────────────────
         Expanded(
           child: budgets.isEmpty
-              ? const Center(
-                  child: Text('No budgets yet.',
-                      style: TextStyle(color: Colors.grey)),
+              ? Center(
+                  child: app.loading
+                      ? const CircularProgressIndicator()
+                      : const Text('No budgets yet.',
+                          style: TextStyle(color: Colors.grey)),
                 )
               : ListView.builder(
                   padding: AppInsets.screen,
