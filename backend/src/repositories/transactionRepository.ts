@@ -274,6 +274,39 @@ export async function findExistingFingerprints(
   return new Set(r.rows.map((row) => row.fingerprint));
 }
 
+export type StatementDraftNet = {
+  netCredits: number;
+  netDebits: number;
+  /** netCredits - netDebits */
+  net: number;
+};
+
+/**
+ * Returns the net of all existing statement-sourced draft transactions for an account.
+ * Only source='statement' rows are included to avoid double-counting manual drafts
+ * that might correspond to transactions also present in a new upload.
+ */
+export async function getNetStatementDrafts(
+  db: Pool | PoolClient,
+  userId: bigint,
+  accountId: bigint
+): Promise<StatementDraftNet> {
+  const r = await db.query<{ net_credits: string; net_debits: string }>(
+    `SELECT
+       COALESCE(SUM(CASE WHEN direction = 'credit' THEN amount ELSE 0 END), 0)::text AS net_credits,
+       COALESCE(SUM(CASE WHEN direction = 'debit'  THEN amount ELSE 0 END), 0)::text AS net_debits
+     FROM transactions
+     WHERE user_id = $1
+       AND account_id = $2
+       AND status = 'draft'
+       AND source = 'statement'`,
+    [userId, accountId]
+  );
+  const netCredits = parseFloat(r.rows[0]?.net_credits ?? "0");
+  const netDebits  = parseFloat(r.rows[0]?.net_debits  ?? "0");
+  return { netCredits, netDebits, net: netCredits - netDebits };
+}
+
 /**
  * Bulk-insert statement draft transactions.
  * Uses ON CONFLICT DO NOTHING on the partial fingerprint index as a safety net

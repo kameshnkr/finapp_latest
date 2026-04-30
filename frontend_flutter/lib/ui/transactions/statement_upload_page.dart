@@ -25,6 +25,8 @@ class _StatementUploadPageState extends State<StatementUploadPage>
   String? _selectedAccountId;
   String? _selectedAccountName;
   String? _pickedFileName;
+  // null = not set (auto-detect), true/false = user explicitly chose
+  bool? _isLatestStatement = true;
 
   String _jobId = '';
   String _statusMessage = '';
@@ -35,7 +37,10 @@ class _StatementUploadPageState extends State<StatementUploadPage>
   String _errorMessage = '';
   StatementConfirmationDataDto? _confirmationData;
   bool _createDummy = true;
+  // null = not yet chosen, true = create reconciliation, false = skip
+  bool? _acctReconcileChoice;
   bool _isConfirming = false;
+  bool _isRejecting = false;
 
   Timer? _pollTimer;
 
@@ -87,6 +92,7 @@ class _StatementUploadPageState extends State<StatementUploadPage>
         accountId: accountId,
         fileBytes: fileBytes,
         fileName: file.name,
+        isLatestStatement: _isLatestStatement,
       );
       _jobId = job.jobId;
       _startPolling();
@@ -129,6 +135,7 @@ class _StatementUploadPageState extends State<StatementUploadPage>
           _stage = _UploadStage.awaitingConfirmation;
           _confirmationData = job.confirmationData;
           _createDummy = true;
+          _acctReconcileChoice = null;
         });
       } else {
         final msg = job.message ?? _labelFor(job.status);
@@ -207,6 +214,7 @@ class _StatementUploadPageState extends State<StatementUploadPage>
     setState(() {
       _stage = _UploadStage.selectAccount;
       _pickedFileName = null;
+      _isLatestStatement = true;
       _jobId = '';
       _statusMessage = '';
       _progress = null;
@@ -215,23 +223,24 @@ class _StatementUploadPageState extends State<StatementUploadPage>
       _errorMessage = '';
       _confirmationData = null;
       _createDummy = true;
+      _acctReconcileChoice = null;
       _isConfirming = false;
+      _isRejecting = false;
     });
   }
 
   Future<void> _onConfirm() async {
-    if (_isConfirming) return;
+    if (_isConfirming || _isRejecting) return;
     setState(() => _isConfirming = true);
     try {
       final app = context.read<AppController>();
       await app.api.confirmStatement(
         jobId: _jobId,
         createDummy: _createDummy,
+        createAccountBalanceDummy: _acctReconcileChoice == true,
       );
       if (!mounted) return;
-      // Poll once more to get the COMPLETED result
       await app.refreshTransactions();
-      // Fetch final job result
       final job = await app.api.getStatementStatus(_jobId);
       if (!mounted) return;
       setState(() {
@@ -250,8 +259,8 @@ class _StatementUploadPageState extends State<StatementUploadPage>
   }
 
   Future<void> _onReject() async {
-    if (_isConfirming) return;
-    setState(() => _isConfirming = true);
+    if (_isRejecting || _isConfirming) return;
+    setState(() => _isRejecting = true);
     try {
       final app = context.read<AppController>();
       await app.api.rejectStatement(_jobId);
@@ -261,12 +270,13 @@ class _StatementUploadPageState extends State<StatementUploadPage>
         const SnackBar(
           content: Text('Import cancelled. No transactions were added.'),
           behavior: SnackBarBehavior.floating,
+          duration: Duration(seconds: 2),
         ),
       );
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _isConfirming = false;
+        _isRejecting = false;
         _errorMessage = e.toString();
         _stage = _UploadStage.failed;
       });
@@ -307,53 +317,7 @@ class _StatementUploadPageState extends State<StatementUploadPage>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Header
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: cs.primaryContainer.withAlpha(60),
-                    borderRadius: BorderRadius.circular(AppRadii.md),
-                    border: Border.all(color: cs.primary.withAlpha(40)),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: cs.primaryContainer,
-                          borderRadius: BorderRadius.circular(AppRadii.sm),
-                        ),
-                        child: Icon(Icons.upload_file_rounded,
-                            color: cs.primary, size: 22),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Upload Bank Statement',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .titleSmall
-                                  ?.copyWith(fontWeight: FontWeight.w700),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              'PDF format · max 20 MB',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodySmall
-                                  ?.copyWith(color: cs.onSurfaceVariant),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 24),
+                const SizedBox(height: 4),
                 Text(
                   'Select Account',
                   style: Theme.of(context).textTheme.labelMedium?.copyWith(
@@ -385,11 +349,14 @@ class _StatementUploadPageState extends State<StatementUploadPage>
             crossAxisAlignment: CrossAxisAlignment.stretch,
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (_selectedAccountId != null)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: _SelectedBadge(name: _selectedAccountName ?? ''),
-                ),
+              // "Is this your latest statement?" toggle
+              _LatestStatementToggle(
+                value: _isLatestStatement,
+                onChanged: _selectedAccountId != null
+                    ? (v) => setState(() => _isLatestStatement = v)
+                    : null,
+              ),
+              const SizedBox(height: 12),
               FilledButton.icon(
                 onPressed:
                     _selectedAccountId != null ? _pickAndUpload : null,
@@ -401,6 +368,15 @@ class _StatementUploadPageState extends State<StatementUploadPage>
                       borderRadius: BorderRadius.circular(AppRadii.md)),
                   textStyle: const TextStyle(
                       fontWeight: FontWeight.w700, fontSize: 15),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Center(
+                child: Text(
+                  'PDF format · max 20 MB',
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
                 ),
               ),
             ],
@@ -522,71 +498,17 @@ class _StatementUploadPageState extends State<StatementUploadPage>
     if (data == null) return const SizedBox.shrink();
 
     final cs = Theme.of(context).colorScheme;
-    final isError = data.deltaStatus == 'ERROR';
-    final accentColor = isError ? AppColors.loss : Colors.amber.shade700;
-    final bgColor = isError
-        ? AppColors.loss.withAlpha(18)
-        : Colors.amber.shade50;
-    final borderColor = isError
-        ? AppColors.loss.withAlpha(80)
-        : Colors.amber.shade300;
-
-    final amountStr =
-        '₹${data.delta % 1 == 0 ? data.delta.toInt() : data.delta.toStringAsFixed(2)}';
+    final hasInternalDelta = data.delta > 0;
+    final hasAcctDelta = (data.acctDelta ?? 0) > 0;
+    final acctChoicePending = hasAcctDelta && _acctReconcileChoice == null;
+    final canConfirm = !_isConfirming && !_isRejecting && !acctChoicePending;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(20, 24, 20, 32),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Icon + headline
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: bgColor,
-                  borderRadius: BorderRadius.circular(AppRadii.sm),
-                  border: Border.all(color: borderColor),
-                ),
-                child: Icon(
-                  isError
-                      ? Icons.error_outline_rounded
-                      : Icons.warning_amber_rounded,
-                  color: accentColor,
-                  size: 22,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      isError ? 'Balance Mismatch Detected' : 'Minor Balance Gap',
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.w700,
-                            color: accentColor,
-                          ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      isError
-                          ? 'The extracted transactions don\'t balance. Some transactions may be missing.'
-                          : 'A small rounding or partial-page gap was found.',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: cs.onSurfaceVariant,
-                          ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 20),
-
-          // Stats card
+          // ── Transaction stats card ──────────────────────────────────────
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             decoration: BoxDecoration(
@@ -614,89 +536,83 @@ class _StatementUploadPageState extends State<StatementUploadPage>
                     valueColor: cs.onSurfaceVariant,
                   ),
                 ],
-                const Divider(height: 20),
-                _ConfirmStat(
-                  label: 'Balance gap',
-                  value: amountStr,
-                  valueColor: accentColor,
-                  bold: true,
-                ),
               ],
             ),
           ),
 
-          const SizedBox(height: 20),
+          // ── Internal balance mismatch section ───────────────────────────
+          if (hasInternalDelta) ...[
+            const SizedBox(height: 20),
+            _InternalBalanceSection(
+              data: data,
+              createDummy: _createDummy,
+              isConfirming: _isConfirming || _isRejecting,
+              onChanged: (v) => setState(() => _createDummy = v ?? true),
+              formatDate: _formatDate,
+            ),
+          ],
 
-          // Dummy transaction checkbox
-          Container(
-            decoration: BoxDecoration(
-              color: cs.surfaceContainerLow,
-              borderRadius: BorderRadius.circular(AppRadii.md),
-              border: Border.all(color: AppColors.cardBorder),
+          // ── Account balance mismatch section ────────────────────────────
+          if (hasAcctDelta) ...[
+            const SizedBox(height: 20),
+            _AccountBalanceSection(
+              data: data,
+              selectedChoice: _acctReconcileChoice,
+              isConfirming: _isConfirming || _isRejecting,
+              onChoiceChanged: (v) => setState(() => _acctReconcileChoice = v),
+              formatDate: _formatDate,
             ),
-            child: CheckboxListTile(
-              value: _createDummy,
-              onChanged: _isConfirming
-                  ? null
-                  : (v) => setState(() => _createDummy = v ?? true),
-              title: Text(
-                'Create a $amountStr balance adjustment transaction',
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-              ),
-              subtitle: Text(
-                'A ${data.dummyType.toLowerCase()} of $amountStr will be added on ${_formatDate(data.latestDate)} to reconcile the gap.',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: cs.onSurfaceVariant,
-                    ),
-              ),
-              controlAffinity: ListTileControlAffinity.leading,
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-              activeColor: cs.primary,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(AppRadii.md)),
-            ),
-          ),
+          ],
 
           const SizedBox(height: 28),
 
-          // Confirm button
-          FilledButton.icon(
-            onPressed: _isConfirming ? null : _onConfirm,
-            icon: _isConfirming
-                ? const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.check_rounded, size: 18),
-            label: Text(_isConfirming ? 'Importing...' : 'Confirm Import'),
-            style: FilledButton.styleFrom(
-              minimumSize: const Size.fromHeight(50),
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(AppRadii.md)),
-              textStyle:
-                  const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
-            ),
-          ),
-          const SizedBox(height: 12),
-
-          // Discard button
-          OutlinedButton.icon(
-            onPressed: _isConfirming ? null : _onReject,
-            icon: const Icon(Icons.delete_outline_rounded, size: 18),
-            label: const Text('Discard All Transactions'),
-            style: OutlinedButton.styleFrom(
-              minimumSize: const Size.fromHeight(48),
-              foregroundColor: cs.error,
-              side: BorderSide(color: cs.error.withAlpha(100)),
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(AppRadii.md)),
-              textStyle:
-                  const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-            ),
+          // ── Discard + Confirm buttons (full width, equal split) ──
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: (_isRejecting || _isConfirming) ? null : _onReject,
+                  icon: _isRejecting
+                      ? const SizedBox(
+                          width: 15,
+                          height: 15,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.delete_outline_rounded, size: 17),
+                  label: Text(_isRejecting ? 'Discarding...' : 'Discard All'),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(0, 48),
+                    foregroundColor: cs.error,
+                    side: BorderSide(color: cs.error.withAlpha(100)),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(AppRadii.md)),
+                    textStyle:
+                        const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: canConfirm ? _onConfirm : null,
+                  icon: _isConfirming
+                      ? const SizedBox(
+                          width: 15,
+                          height: 15,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.check_rounded, size: 17),
+                  label: Text(_isConfirming ? 'Importing...' : 'Confirm Import'),
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size(0, 48),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(AppRadii.md)),
+                    textStyle:
+                        const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -787,7 +703,7 @@ class _StatementUploadPageState extends State<StatementUploadPage>
                   Navigator.of(context).push<void>(
                     MaterialPageRoute<void>(
                       builder: (_) =>
-                          const TransactionsScreen(initialTab: 1),
+                          const TransactionsScreen(initialTab: 0),
                     ),
                   );
                 },
@@ -1192,6 +1108,427 @@ class _FileCleanupHint extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ── Latest statement toggle ───────────────────────────────────────────────────
+
+class _LatestStatementToggle extends StatelessWidget {
+  const _LatestStatementToggle({
+    required this.value,
+    required this.onChanged,
+  });
+
+  final bool? value;
+  final ValueChanged<bool?>? onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final isEnabled = onChanged != null;
+    return Container(
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(AppRadii.md),
+        border: Border.all(color: AppColors.cardBorder),
+      ),
+      child: SwitchListTile(
+        value: value ?? false,
+        onChanged: isEnabled ? (v) => onChanged!(v ? true : null) : null,
+        title: Text(
+          'This is my latest statement',
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: isEnabled ? cs.onSurface : cs.onSurfaceVariant,
+              ),
+        ),
+        subtitle: Text(
+          'Enables account balance check against the statement closing balance.',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: cs.onSurfaceVariant,
+              ),
+        ),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+        activeColor: cs.primary,
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppRadii.md)),
+      ),
+    );
+  }
+}
+
+// ── Internal balance mismatch section ────────────────────────────────────────
+
+class _InternalBalanceSection extends StatelessWidget {
+  const _InternalBalanceSection({
+    required this.data,
+    required this.createDummy,
+    required this.isConfirming,
+    required this.onChanged,
+    required this.formatDate,
+  });
+
+  final StatementConfirmationDataDto data;
+  final bool createDummy;
+  final bool isConfirming;
+  final ValueChanged<bool?> onChanged;
+  final String Function(String) formatDate;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final isError = data.deltaStatus == 'ERROR';
+    final accentColor = isError ? AppColors.loss : Colors.amber.shade700;
+    final bgColor =
+        isError ? AppColors.loss.withAlpha(18) : Colors.amber.shade50;
+    final borderColor =
+        isError ? AppColors.loss.withAlpha(80) : Colors.amber.shade300;
+    final amountStr = _fmt(data.delta);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Header
+        Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: bgColor,
+                borderRadius: BorderRadius.circular(AppRadii.sm),
+                border: Border.all(color: borderColor),
+              ),
+              child: Icon(
+                isError
+                    ? Icons.error_outline_rounded
+                    : Icons.warning_amber_rounded,
+                color: accentColor,
+                size: 22,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    isError ? 'Balance Mismatch Detected' : 'Minor Balance Gap',
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                          color: accentColor,
+                        ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    isError
+                        ? 'Extracted transactions don\'t balance. Some may be missing.'
+                        : 'A small rounding or partial-page gap was found.',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: cs.onSurfaceVariant,
+                        ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        // Gap stat
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            color: cs.surfaceContainerLow,
+            borderRadius: BorderRadius.circular(AppRadii.md),
+            border: Border.all(color: AppColors.cardBorder),
+          ),
+          child: _ConfirmStat(
+            label: 'Statement balance gap',
+            value: amountStr,
+            valueColor: accentColor,
+            bold: true,
+          ),
+        ),
+        const SizedBox(height: 10),
+        // Dummy checkbox
+        Container(
+          decoration: BoxDecoration(
+            color: cs.surfaceContainerLow,
+            borderRadius: BorderRadius.circular(AppRadii.md),
+            border: Border.all(color: AppColors.cardBorder),
+          ),
+          child: CheckboxListTile(
+            value: createDummy,
+            onChanged: isConfirming ? null : onChanged,
+            title: Text(
+              'Create a $amountStr balance adjustment',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
+            subtitle: Text(
+              'A ${data.dummyType.toLowerCase()} of $amountStr on ${formatDate(data.latestDate)} to reconcile the statement gap.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: cs.onSurfaceVariant,
+                  ),
+            ),
+            controlAffinity: ListTileControlAffinity.leading,
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            activeColor: cs.primary,
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppRadii.md)),
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _fmt(double v) =>
+      '₹${v % 1 == 0 ? v.toInt() : v.toStringAsFixed(2)}';
+}
+
+// ── Account balance mismatch section ─────────────────────────────────────────
+
+class _AccountBalanceSection extends StatelessWidget {
+  const _AccountBalanceSection({
+    required this.data,
+    required this.selectedChoice,
+    required this.isConfirming,
+    required this.onChoiceChanged,
+    required this.formatDate,
+  });
+
+  final StatementConfirmationDataDto data;
+  /// null = not chosen yet, true = create reconciliation, false = skip
+  final bool? selectedChoice;
+  final bool isConfirming;
+  final ValueChanged<bool> onChoiceChanged;
+  final String Function(String) formatDate;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final acctDelta = data.acctDelta!;
+    final dummyType = data.acctDummyType ?? 'CREDIT';
+    final amountStr = _fmt(acctDelta);
+    final choicePending = selectedChoice == null;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // ── Header ──────────────────────────────────────────────────────────
+        Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: cs.tertiaryContainer.withAlpha(80),
+                borderRadius: BorderRadius.circular(AppRadii.sm),
+                border: Border.all(color: cs.tertiary.withAlpha(80)),
+              ),
+              child: Icon(Icons.account_balance_rounded,
+                  color: cs.tertiary, size: 22),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Account Balance Mismatch',
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                          color: cs.tertiary,
+                        ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Your app balance won\'t match the statement closing balance after settling. This may be due to missed transactions.',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: cs.onSurfaceVariant,
+                        ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+
+        // ── Balance breakdown ────────────────────────────────────────────────
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            color: cs.surfaceContainerLow,
+            borderRadius: BorderRadius.circular(AppRadii.md),
+            border: Border.all(color: AppColors.cardBorder),
+          ),
+          child: Column(
+            children: [
+              if (data.acctClosingBalance != null)
+                _ConfirmStat(
+                  label: 'Statement closing balance',
+                  value: _fmt(data.acctClosingBalance!),
+                ),
+              if (data.acctProjectedBalance != null) ...[
+                const SizedBox(height: 8),
+                _ConfirmStat(
+                  label: 'Projected after settling',
+                  value: _fmt(data.acctProjectedBalance!),
+                ),
+              ],
+              const Divider(height: 20),
+              _ConfirmStat(
+                label: 'Account balance gap',
+                value: amountStr,
+                valueColor: cs.tertiary,
+                bold: true,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        // ── Explicit choice prompt ───────────────────────────────────────────
+        if (choicePending)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Row(
+              children: [
+                Icon(Icons.touch_app_rounded,
+                    size: 14, color: cs.onSurfaceVariant),
+                const SizedBox(width: 6),
+                Text(
+                  'Choose how to handle this gap',
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: cs.onSurfaceVariant,
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
+              ],
+            ),
+          ),
+
+        // ── Two-option selector ──────────────────────────────────────────────
+        Row(
+          children: [
+              Expanded(
+                child: _ChoiceOption(
+                  selected: selectedChoice == true,
+                  enabled: !isConfirming,
+                  label: 'Create reconciliation',
+                  description: 'Add a ${dummyType.toLowerCase()} of $amountStr on ${formatDate(data.latestDate)}',
+                  selectedColor: cs.tertiary,
+                  onTap: isConfirming ? null : () => onChoiceChanged(true),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _ChoiceOption(
+                  selected: selectedChoice == false,
+                  enabled: !isConfirming,
+                  label: 'Skip for now',
+                  description: 'Import transactions without reconciling',
+                  selectedColor: cs.onSurfaceVariant,
+                  onTap: isConfirming ? null : () => onChoiceChanged(false),
+                ),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  String _fmt(double v) =>
+      '₹${v % 1 == 0 ? v.toInt() : v.toStringAsFixed(2)}';
+}
+
+class _ChoiceOption extends StatelessWidget {
+  const _ChoiceOption({
+    required this.selected,
+    required this.enabled,
+    required this.label,
+    required this.description,
+    required this.selectedColor,
+    required this.onTap,
+  });
+
+  final bool selected;
+  final bool enabled;
+  final String label;
+  final String description;
+  final Color selectedColor;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final borderColor = selected ? selectedColor : cs.outline.withAlpha(100);
+    final bgColor = selected ? selectedColor.withAlpha(18) : cs.surfaceContainerLow;
+
+    return Material(
+      color: bgColor,
+      borderRadius: BorderRadius.circular(AppRadii.md),
+      child: InkWell(
+        onTap: enabled ? onTap : null,
+        borderRadius: BorderRadius.circular(AppRadii.md),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(AppRadii.md),
+            border: Border.all(color: borderColor, width: selected ? 1.8 : 1),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Radio indicator
+              Padding(
+                padding: const EdgeInsets.only(top: 1),
+                child: Container(
+                  width: 18,
+                  height: 18,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: selected ? selectedColor : Colors.transparent,
+                    border: Border.all(
+                      color: selected ? selectedColor : cs.outline.withAlpha(140),
+                      width: 2,
+                    ),
+                  ),
+                  child: selected
+                      ? const Icon(Icons.check_rounded,
+                          size: 11, color: Colors.white)
+                      : null,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      label,
+                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                            color: selected ? selectedColor : cs.onSurface,
+                          ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      description,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            color: cs.onSurfaceVariant,
+                            height: 1.35,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

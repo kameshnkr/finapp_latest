@@ -256,18 +256,23 @@ class StatementConfirmationDataDto {
     required this.totalExtracted,
     required this.duplicatesSkipped,
     required this.pendingCount,
+    this.acctDelta,
+    this.acctDummyType,
+    this.acctDbBalance,
+    this.acctProjectedBalance,
+    this.acctClosingBalance,
   });
 
-  /// Absolute balance gap (₹)
+  /// Absolute internal balance gap (₹) — from opening/closing check
   final double delta;
 
   /// Maximum allowed gap before it becomes an ERROR
   final double allowedDelta;
 
-  /// 'WARNING' or 'ERROR'
+  /// 'OK', 'WARNING' or 'ERROR'
   final String deltaStatus;
 
-  /// Direction of dummy transaction needed: 'CREDIT' or 'DEBIT'
+  /// Direction of internal dummy transaction: 'CREDIT' or 'DEBIT'
   final String dummyType;
 
   /// Latest transaction date in the statement (YYYY-MM-DD)
@@ -279,6 +284,23 @@ class StatementConfirmationDataDto {
   /// How many non-duplicate transactions are pending insertion
   final int pendingCount;
 
+  // ── Account balance reconciliation fields ──────────────────────────────────
+
+  /// Absolute account balance gap (₹); null = check was not triggered or passed
+  final double? acctDelta;
+
+  /// Direction of account balance reconciliation dummy: 'CREDIT' or 'DEBIT'
+  final String? acctDummyType;
+
+  /// Account total_balance from DB at time of processing
+  final double? acctDbBalance;
+
+  /// Projected balance after settling all statement drafts + new items
+  final double? acctProjectedBalance;
+
+  /// Statement closing balance used for the account check
+  final double? acctClosingBalance;
+
   factory StatementConfirmationDataDto.fromJson(Map<String, dynamic> j) =>
       StatementConfirmationDataDto(
         delta: (j['delta'] as num).toDouble(),
@@ -289,6 +311,11 @@ class StatementConfirmationDataDto {
         totalExtracted: (j['total_extracted'] as num).toInt(),
         duplicatesSkipped: (j['duplicates_skipped'] as num).toInt(),
         pendingCount: (j['pending_count'] as num).toInt(),
+        acctDelta: j['acct_delta'] != null ? (j['acct_delta'] as num).toDouble() : null,
+        acctDummyType: j['acct_dummy_type'] as String?,
+        acctDbBalance: j['acct_db_balance'] != null ? (j['acct_db_balance'] as num).toDouble() : null,
+        acctProjectedBalance: j['acct_projected_balance'] != null ? (j['acct_projected_balance'] as num).toDouble() : null,
+        acctClosingBalance: j['acct_closing_balance'] != null ? (j['acct_closing_balance'] as num).toDouble() : null,
       );
 }
 
@@ -299,6 +326,7 @@ class StatementJobResultDto {
     required this.duplicatesSkipped,
     required this.validationStatus,
     this.dummyInserted = false,
+    this.acctDummyInserted = false,
   });
 
   final int totalExtracted;
@@ -308,7 +336,11 @@ class StatementJobResultDto {
   /// 'SUCCESS' | 'REVIEW_REQUIRED'
   final String validationStatus;
 
+  /// Whether an internal balance adjustment dummy was inserted
   final bool dummyInserted;
+
+  /// Whether an account balance reconciliation dummy was inserted
+  final bool acctDummyInserted;
 
   factory StatementJobResultDto.fromJson(Map<String, dynamic> j) =>
       StatementJobResultDto(
@@ -317,6 +349,7 @@ class StatementJobResultDto {
         duplicatesSkipped: (j['duplicates_skipped'] as num).toInt(),
         validationStatus: j['validation_status'] as String? ?? 'SUCCESS',
         dummyInserted: j['dummy_inserted'] as bool? ?? false,
+        acctDummyInserted: j['acct_dummy_inserted'] as bool? ?? false,
       );
 }
 

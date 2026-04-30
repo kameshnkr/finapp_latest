@@ -224,12 +224,17 @@ class FinappApi {
     required String accountId,
     required List<int> fileBytes,
     required String fileName,
+    bool? isLatestStatement,
   }) async {
+    final fields = <String, String>{'accountId': accountId};
+    if (isLatestStatement != null) {
+      fields['isLatestStatement'] = isLatestStatement.toString();
+    }
     final j = await _client.postMultipartBytes(
       '/api/statements/upload',
       bytes: fileBytes,
       fileName: fileName,
-      fields: {'accountId': accountId},
+      fields: fields,
     ) as Map<String, dynamic>;
     return StatementJobDto.fromUploadJson(j);
   }
@@ -245,10 +250,15 @@ class FinappApi {
   Future<void> confirmStatement({
     required String jobId,
     required bool createDummy,
+    bool createAccountBalanceDummy = false,
   }) async {
     await _client.postJson(
       '/api/statements/confirm',
-      body: {'job_id': jobId, 'create_dummy': createDummy},
+      body: {
+        'job_id': jobId,
+        'create_dummy': createDummy,
+        'create_account_balance_dummy': createAccountBalanceDummy,
+      },
     );
   }
 

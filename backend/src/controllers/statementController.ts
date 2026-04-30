@@ -12,6 +12,8 @@ import { HttpError } from "../utils/errors.js";
 
 const uploadBodySchema = z.object({
   accountId: z.string().min(1),
+  // Multipart fields are always strings; accept 'true'/'false', default to null (auto-detect)
+  isLatestStatement: z.enum(["true", "false"]).optional(),
 });
 
 export async function uploadStatement(
@@ -39,6 +41,11 @@ export async function uploadStatement(
       throw new HttpError(404, "Account not found");
     }
 
+    const isLatestStatement =
+      body.isLatestStatement === "true" ? true :
+      body.isLatestStatement === "false" ? false :
+      null;
+
     const jobId = randomUUID();
     await jobRepo.createJob(pool, jobId, req.userId, accountId);
 
@@ -47,7 +54,7 @@ export async function uploadStatement(
 
     // Hand off file ownership to processStatement — its finally block handles cleanup
     setImmediate(() => {
-      void processStatement(jobId, req.userId, accountId, filePath);
+      void processStatement(jobId, req.userId, accountId, filePath, isLatestStatement);
     });
 
     res.status(202).json({ job_id: jobId, status: "PROCESSING" });
@@ -92,6 +99,11 @@ export async function getStatus(
         total_extracted: r["total_extracted"],
         duplicates_skipped: r["duplicates_skipped"],
         pending_count: (r["pending_transactions"] as unknown[])?.length ?? 0,
+        acct_delta: r["acct_delta"] ?? null,
+        acct_dummy_type: r["acct_dummy_type"] ?? null,
+        acct_db_balance: r["acct_db_balance"] ?? null,
+        acct_projected_balance: r["acct_projected_balance"] ?? null,
+        acct_closing_balance: r["acct_closing_balance"] ?? null,
       },
     });
     return;
@@ -111,6 +123,7 @@ export async function getStatus(
 const confirmBodySchema = z.object({
   job_id: z.string().min(1),
   create_dummy: z.boolean(),
+  create_account_balance_dummy: z.boolean().optional().default(false),
 });
 
 export async function confirmStatement(
@@ -126,11 +139,13 @@ export async function confirmStatement(
 
   const r = job.result as Record<string, unknown>;
   const pendingTransactions = r["pending_transactions"] as StatementDraftItem[];
-  const totalExtracted = r["total_extracted"] as number;
-  const duplicatesSkipped = r["duplicates_skipped"] as number;
-  const delta = r["delta"] as number;
-  const dummyType = r["dummy_type"] as "CREDIT" | "DEBIT";
-  const latestDate = r["latest_date"] as string;
+  const totalExtracted      = r["total_extracted"] as number;
+  const duplicatesSkipped   = r["duplicates_skipped"] as number;
+  const delta               = r["delta"] as number;
+  const dummyType           = r["dummy_type"] as "CREDIT" | "DEBIT";
+  const latestDate          = r["latest_date"] as string;
+  const acctDelta           = r["acct_delta"] as number | null;
+  const acctDummyType       = r["acct_dummy_type"] as "CREDIT" | "DEBIT" | null;
 
   await jobRepo.updateJobStatus(pool, body.job_id, "SAVING", "Saving drafts...");
 
@@ -142,6 +157,7 @@ export async function confirmStatement(
 
   const totalInserted = await txRepo.insertStatementDrafts(pool, req.userId, job.account_id, toInsert);
 
+  // ── Internal balance dummy ────────────────────────────────────────────────
   let dummyInserted = 0;
   if (body.create_dummy && delta > 0 && latestDate) {
     const dummyDesc = "Balance adjustment";
@@ -158,12 +174,10 @@ export async function confirmStatement(
       description: dummyDesc,
       descriptionReadable: "Balance adjustment",
       transactionDate: latestDate,
-      // Use the highest seq among ALL drafts for this account so the dummy
-      // always sorts above (DESC) every real transaction, even on re-uploads.
+      // Use the highest seq among all pending transactions so this dummy sorts last
       statementSeq: pendingTransactions.reduce((max, t) => Math.max(max, t.statementSeq), totalExtracted - 1) + 1,
       fingerprint: dummyFp,
     };
-    // Insert only if not already present (idempotent)
     const existingDummy = await txRepo.findExistingFingerprints(pool, [dummyFp], req.userId);
     if (!existingDummy.has(dummyFp)) {
       await txRepo.insertStatementDrafts(pool, req.userId, job.account_id, [dummyItem]);
@@ -171,16 +185,47 @@ export async function confirmStatement(
     }
   }
 
+  // ── Account balance reconciliation dummy ──────────────────────────────────
+  let acctDummyInserted = 0;
+  if (body.create_account_balance_dummy && acctDelta && acctDelta > 0 && acctDummyType && latestDate) {
+    const dummyDesc = "Account balance reconciliation";
+    const dummyFp = computeFingerprint(
+      job.account_id,
+      latestDate,
+      acctDelta.toFixed(2),
+      dummyDesc,
+      acctDummyType
+    );
+    const dummyItem: StatementDraftItem = {
+      direction: acctDummyType === "CREDIT" ? "credit" : "debit",
+      amount: acctDelta.toFixed(2),
+      description: dummyDesc,
+      descriptionReadable: "Account balance reconciliation",
+      transactionDate: latestDate,
+      statementSeq: pendingTransactions.reduce((max, t) => Math.max(max, t.statementSeq), totalExtracted - 1) + 2,
+      fingerprint: dummyFp,
+    };
+    const existingDummy = await txRepo.findExistingFingerprints(pool, [dummyFp], req.userId);
+    if (!existingDummy.has(dummyFp)) {
+      await txRepo.insertStatementDrafts(pool, req.userId, job.account_id, [dummyItem]);
+      acctDummyInserted = 1;
+    }
+  }
+
+  const anyDummyInserted = dummyInserted > 0 || acctDummyInserted > 0;
+
   await jobRepo.completeJob(pool, body.job_id, {
     total_extracted: totalExtracted,
-    total_inserted: totalInserted + dummyInserted,
+    total_inserted: totalInserted + dummyInserted + acctDummyInserted,
     duplicates_skipped: duplicatesSkipped + extraSkipped,
-    validation_status: body.create_dummy ? "SUCCESS" : "REVIEW_REQUIRED",
+    validation_status: anyDummyInserted ? "SUCCESS" : "REVIEW_REQUIRED",
     dummy_inserted: dummyInserted > 0,
+    acct_dummy_inserted: acctDummyInserted > 0,
   });
 
   console.log(
-    `[statement][job:${body.job_id}] ✅ Confirmed — inserted=${totalInserted}, dummyInserted=${dummyInserted}, extraSkipped=${extraSkipped}`
+    `[statement][job:${body.job_id}] ✅ Confirmed — inserted=${totalInserted}, ` +
+      `dummyInserted=${dummyInserted}, acctDummyInserted=${acctDummyInserted}, extraSkipped=${extraSkipped}`
   );
 
   res.json({ status: "COMPLETED" });

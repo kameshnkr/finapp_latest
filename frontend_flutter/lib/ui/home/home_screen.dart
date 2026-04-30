@@ -123,10 +123,11 @@ class _HomeScreenState extends State<HomeScreen>
                     child: _SideAction(
                       icon: Icons.pending_actions_rounded,
                       label: 'Drafts',
+                      badgeCount: app.drafts.length,
                       onTap: () => Navigator.of(context).push<void>(
                         MaterialPageRoute<void>(
                           builder: (_) =>
-                              const TransactionsScreen(initialTab: 1),
+                              const TransactionsScreen(initialTab: 0),
                         ),
                       ),
                     ),
@@ -141,7 +142,7 @@ class _HomeScreenState extends State<HomeScreen>
                         onPressed: () => Navigator.of(context).push<void>(
                           MaterialPageRoute<void>(
                             builder: (_) =>
-                                const TransactionsScreen(initialTab: 0),
+                                const TransactionsScreen(initialTab: 1),
                           ),
                         ),
                         icon: const Icon(Icons.add, size: 18),
@@ -252,11 +253,13 @@ class _SideAction extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.onTap,
+    this.badgeCount = 0,
   });
 
   final IconData icon;
   final String label;
   final VoidCallback onTap;
+  final int badgeCount;
 
   @override
   Widget build(BuildContext context) {
@@ -264,10 +267,18 @@ class _SideAction extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
-        child: Column(
+      child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(icon, size: 20, color: cs.primary),
+          Badge(
+            isLabelVisible: badgeCount > 0,
+            offset: const Offset(14, -4),
+            label: Text(
+              badgeCount > 50 ? '50+' : '$badgeCount',
+              style: const TextStyle(fontSize: 9),
+            ),
+            child: Icon(icon, size: 20, color: cs.primary),
+          ),
           const SizedBox(height: 2),
           Text(
             label,

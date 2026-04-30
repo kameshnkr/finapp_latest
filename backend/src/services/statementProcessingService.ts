@@ -215,7 +215,8 @@ export async function processStatement(
   jobId: string,
   userId: bigint,
   accountId: bigint,
-  filePath: string
+  filePath: string,
+  isLatestStatement: boolean | null
 ): Promise<void> {
   try {
     await jobRepo.updateJobStatus(
@@ -475,10 +476,86 @@ export async function processStatement(
     const skippedItems = items.filter((i) => existing.has(i.fingerprint));
     const duplicatesSkipped = skippedItems.length;
 
-    // ── Step 8b: If delta requires confirmation, pause here ───────────────────
-    if (deltaStatus !== "OK") {
+    // ── Step 8c: Account balance reconciliation check ─────────────────────────
+    //
+    // Projected balance after settling everything this statement covers:
+    //   projected = account.total_balance
+    //             + net(existing statement drafts, source='statement' only)
+    //             + net(new items from this upload)
+    //
+    // We exclude manual drafts to avoid double-counting transactions that appear
+    // in both a manual draft and the current statement import.
+    //
+    // Gate conditions (all must be true):
+    //   1. closingBalance was found in the statement
+    //   2. isLatestStatement !== false  (user didn't explicitly say "not latest")
+    //   3. isLatestStatement === true   (user flagged it)
+    //      OR  latestDate >= yesterday  (auto-detect: statement likely current)
+
+    const todayUtc     = new Date().toISOString().slice(0, 10);
+    const yesterdayUtc = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+    const autoDetect   = latestDate >= yesterdayUtc;
+    const runAcctCheck =
+      closingBalance !== null &&
+      isLatestStatement !== false &&
+      (isLatestStatement === true || autoDetect);
+
+    let acctDelta: number | null           = null;
+    let acctDummyType: "CREDIT" | "DEBIT" | null = null;
+    let acctDbBalance: number | null       = null;
+    let acctProjectedBalance: number | null = null;
+
+    if (runAcctCheck) {
+      const accRow = await pool.query<{ total_balance: string }>(
+        `SELECT total_balance::text FROM accounts WHERE id = $1 AND user_id = $2`,
+        [accountId, userId]
+      );
+      const dbBalance = parseFloat(accRow.rows[0]?.total_balance ?? "0");
+
+      const existingNet = await txRepo.getNetStatementDrafts(pool, userId, accountId);
+
+      const newItemsNet = newItems.reduce((sum, item) => {
+        const amt = parseFloat(item.amount);
+        return sum + (item.direction === "credit" ? amt : -amt);
+      }, 0);
+
+      const projected = dbBalance + existingNet.net + newItemsNet;
+      // positive diff → statement CB > projected → need CREDIT to bring projected up
+      const diff = closingBalance! - projected;
+
+      acctDbBalance        = dbBalance;
+      acctProjectedBalance = parseFloat(projected.toFixed(2));
+
+      console.log(
+        `[statement][job:${jobId}] Account balance check:\n` +
+          `  db_balance        : ${dbBalance.toFixed(2)}\n` +
+          `  existing_stmt_net : ${existingNet.net.toFixed(2)} (credits=${existingNet.netCredits.toFixed(2)}, debits=${existingNet.netDebits.toFixed(2)})\n` +
+          `  new_items_net     : ${newItemsNet.toFixed(2)}\n` +
+          `  projected_balance : ${projected.toFixed(2)}\n` +
+          `  statement_closing : ${closingBalance!.toFixed(2)}\n` +
+          `  difference        : ${diff.toFixed(2)}\n` +
+          `  result            : ${Math.abs(diff) <= 1 ? "✅ PASS" : "⚠️  MISMATCH"}`
+      );
+
+      if (Math.abs(diff) > 1) {
+        acctDelta     = parseFloat(Math.abs(diff).toFixed(2));
+        acctDummyType = diff > 0 ? "CREDIT" : "DEBIT";
+        console.warn(
+          `[statement][job:${jobId}] ⚠️  Account balance mismatch — acctDelta=${acctDelta}, dummyType=${acctDummyType}`
+        );
+      }
+    } else {
+      console.log(
+        `[statement][job:${jobId}] Account balance check skipped — ` +
+          `closingBalance=${closingBalance}, isLatestStatement=${isLatestStatement}, ` +
+          `autoDetect=${autoDetect} (latestDate=${latestDate}, today=${todayUtc})`
+      );
+    }
+
+    // ── Step 8b: If either check requires confirmation, pause here ────────────
+    if (deltaStatus !== "OK" || acctDelta !== null) {
       await jobRepo.setAwaitingConfirmation(pool, jobId, {
-        pending_transactions: newItems,        // only the non-duplicate ones
+        pending_transactions: newItems,
         total_extracted: totalExtracted,
         duplicates_skipped: duplicatesSkipped,
         delta,
@@ -486,9 +563,16 @@ export async function processStatement(
         delta_status: deltaStatus,
         dummy_type: dummyType,
         latest_date: latestDate,
+        acct_delta: acctDelta,
+        acct_dummy_type: acctDummyType,
+        acct_db_balance: acctDbBalance,
+        acct_projected_balance: acctProjectedBalance,
+        acct_closing_balance: closingBalance,
       });
       console.log(
-        `[statement][job:${jobId}] ⏸  AWAITING_CONFIRMATION — delta=${delta} (allowed=${allowedDelta}), status=${deltaStatus}, pendingToInsert=${newItems.length}`
+        `[statement][job:${jobId}] ⏸  AWAITING_CONFIRMATION — ` +
+          `delta=${delta} (allowed=${allowedDelta}), status=${deltaStatus}, ` +
+          `acctDelta=${acctDelta}, pendingToInsert=${newItems.length}`
       );
       return;
     }

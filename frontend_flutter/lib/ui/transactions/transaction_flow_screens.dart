@@ -14,7 +14,7 @@ import 'statement_upload_page.dart';
 class TransactionsScreen extends StatefulWidget {
   const TransactionsScreen({super.key, this.initialTab = 0});
 
-  /// 0 = Add Draft, 1 = Drafts, 2 = Settled
+  /// 0 = Drafts, 1 = Add Draft, 2 = Settled
   final int initialTab;
 
   @override
@@ -42,6 +42,7 @@ class _TransactionsScreenState extends State<TransactionsScreen>
 
   @override
   Widget build(BuildContext context) {
+    final draftCount = context.watch<AppController>().drafts.length;
     return Scaffold(
       appBar: AppBar(
         title: const Text('Transactions'),
@@ -54,8 +55,22 @@ class _TransactionsScreenState extends State<TransactionsScreen>
                 controller: _tabCtrl,
                 indicatorSize: TabBarIndicatorSize.tab,
                 splashBorderRadius: BorderRadius.circular(8),
-                tabs: const [
+                tabs: [
                   Tab(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.pending_actions_rounded, size: 15),
+                        const SizedBox(width: 6),
+                        const Text('Drafts'),
+                        if (draftCount > 0) ...[
+                          const SizedBox(width: 5),
+                          _CountChip(draftCount),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const Tab(
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -65,17 +80,7 @@ class _TransactionsScreenState extends State<TransactionsScreen>
                       ],
                     ),
                   ),
-                  Tab(
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.pending_actions_rounded, size: 15),
-                        SizedBox(width: 6),
-                        Text('Drafts'),
-                      ],
-                    ),
-                  ),
-                  Tab(
+                  const Tab(
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -95,11 +100,9 @@ class _TransactionsScreenState extends State<TransactionsScreen>
       body: SafeArea(
         child: TabBarView(
           controller: _tabCtrl,
-          // Disable swipe so draft/settled scrolls don't fight tab swipe.
-          physics: const NeverScrollableScrollPhysics(),
           children: const [
-            _AddTabContent(),
             DraftsPage(),
+            _AddTabContent(),
             SettledPage(),
           ],
         ),
@@ -405,6 +408,31 @@ class SettledFlowScreen extends StatelessWidget {
         bottom: const _LoadingBar(),
       ),
       body: const SafeArea(child: SettledPage()),
+    );
+  }
+}
+
+class _CountChip extends StatelessWidget {
+  const _CountChip(this.count);
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+      decoration: BoxDecoration(
+        color: cs.error,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        count > 50 ? '50+' : '$count',
+        style: TextStyle(
+          fontSize: 9,
+          fontWeight: FontWeight.w700,
+          color: cs.onError,
+        ),
+      ),
     );
   }
 }

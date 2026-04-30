@@ -209,6 +209,7 @@ class _BudgetCard extends StatelessWidget {
                           valueColor: availableColor,
                           bold: true,
                           subtitle: acctLabel,
+                          icon: Icons.account_balance_wallet_outlined,
                         ),
                       ],
                     ),
@@ -257,11 +258,14 @@ class _StatRow extends StatelessWidget {
                 ?.copyWith(color: cs.onSurfaceVariant),
           ),
         ),
-        Text(
-          value,
-          style: theme.textTheme.bodyMedium?.copyWith(
-            color: valueColor,
-            fontWeight: bold ? FontWeight.w700 : FontWeight.w500,
+        Flexible(
+          child: Text(
+            value,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: valueColor,
+              fontWeight: bold ? FontWeight.w700 : FontWeight.w500,
+            ),
           ),
         ),
       ],
@@ -278,6 +282,7 @@ class _StatColumn extends StatelessWidget {
     required this.valueColor,
     this.bold = false,
     this.subtitle,
+    this.icon,
   });
 
   final String label;
@@ -285,6 +290,7 @@ class _StatColumn extends StatelessWidget {
   final Color valueColor;
   final bool bold;
   final String? subtitle;
+  final IconData? icon;
 
   @override
   Widget build(BuildContext context) {
@@ -294,11 +300,20 @@ class _StatColumn extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.center,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(
-          label,
-          textAlign: TextAlign.center,
-          style: theme.textTheme.labelSmall
-              ?.copyWith(color: cs.onSurfaceVariant, height: 1.2),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (icon != null) ...[
+              Icon(icon, size: 11, color: cs.onSurfaceVariant),
+              const SizedBox(width: 3),
+            ],
+            Text(
+              label,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.labelSmall
+                  ?.copyWith(color: cs.onSurfaceVariant, height: 1.2),
+            ),
+          ],
         ),
         const SizedBox(height: 4),
         Text(
