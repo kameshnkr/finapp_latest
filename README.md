@@ -57,7 +57,10 @@ Use `127.0.0.1` for iOS simulator / desktop / Chrome. For **Android emulator**, 
 ```bash
 cd frontend_flutter
 flutter pub get
+
 flutter run --dart-define=API_BASE=http://127.0.0.1:3000
+or
+flutter run --dart-define=API_BASE=https://finapp-latest.onrender.com
 ```
 
 Log in with any email and the OTP from `STATIC_OTP` in the backend `.env`.
@@ -74,6 +77,8 @@ The API base URL is **fixed at build time**. Use your real backend URL (ngrok HT
 cd frontend_flutter
 flutter pub get
 flutter build apk --release --dart-define=API_BASE=https://uninveigled-eveline-twiggy.ngrok-free.dev
+or
+flutter build apk --release --dart-define=API_BASE=https://finapp-latest.onrender.com
 ```
 
 Output file:
