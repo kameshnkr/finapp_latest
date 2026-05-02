@@ -8,16 +8,41 @@ import '../../core/snack_utils.dart';
 import '../../state/app_controller.dart';
 import '../../utils/amount_formatter.dart';
 
-class BudgetDetailScreen extends StatelessWidget {
+class BudgetDetailScreen extends StatefulWidget {
   const BudgetDetailScreen({super.key, required this.budgetId});
 
   final String budgetId;
+
+  @override
+  State<BudgetDetailScreen> createState() => _BudgetDetailScreenState();
+}
+
+class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
+  List<BudgetSnapshotDto> _snapshots = [];
+  bool _snapshotsLoaded = false;
+
+  String get budgetId => widget.budgetId;
 
   BudgetDto? _find(List<BudgetDto> budgets) {
     for (final b in budgets) {
       if (b.id == budgetId) return b;
     }
     return null;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+  }
+
+  Future<void> _loadSnapshots() async {
+    final app = context.read<AppController>();
+    try {
+      final snaps = await app.api.fetchBudgetSnapshots(budgetId);
+      if (mounted) setState(() { _snapshots = snaps; _snapshotsLoaded = true; });
+    } catch (_) {
+      if (mounted) setState(() => _snapshotsLoaded = true);
+    }
   }
 
   @override
@@ -57,6 +82,7 @@ class BudgetDetailScreen extends StatelessWidget {
             ),
           ],
         ),
+        actions: [],
       ),
       body: ListView(
         padding: AppInsets.screen,
@@ -71,10 +97,27 @@ class BudgetDetailScreen extends StatelessWidget {
             pct: pct,
             overBudget: overBudget,
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 6),
+
+          // ── Snapshot history button ──────────────────────────────────────
+          _ShowHistoryButton(
+            budgetId: budgetId,
+            onLoad: (snaps) => setState(() {
+              _snapshots = snaps;
+              _snapshotsLoaded = true;
+            }),
+            snapshots: _snapshots,
+            loaded: _snapshotsLoaded,
+          ),
+
+          const SizedBox(height: 14),
 
           // ── Schedule info row (read-only) ───────────────────────────────
-          _ScheduleRow(budget: b, onEdit: () => _showEditSheet(context, b)),
+          _ScheduleRow(
+            budget: b,
+            onEdit: () => _showEditSheet(context, b),
+            onReset: () => _showResetConfirmation(context, b),
+          ),
           const SizedBox(height: 24),
 
           // ── Categories header ───────────────────────────────────────────
@@ -117,6 +160,81 @@ class BudgetDetailScreen extends StatelessWidget {
     );
   }
 
+  void _showResetConfirmation(BuildContext context, BudgetDto budget) {
+    final cs = Theme.of(context).colorScheme;
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Reset budget?'),
+        content: Text(
+          budget.resetType == 'scheduled'
+              ? 'This will start a new period from today and clear all spending. '
+                'The next period end will follow your existing schedule.'
+              : 'This will clear all spending and start fresh from today.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: cs.error),
+            onPressed: () async {
+              Navigator.pop(ctx); // close confirm dialog
+              // Show blocking loader
+              showDialog<void>(
+                context: context,
+                barrierDismissible: false,
+                builder: (_) => const PopScope(
+                  canPop: false,
+                  child: Center(
+                    child: Card(
+                      child: Padding(
+                        padding: EdgeInsets.all(24),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            CircularProgressIndicator(),
+                            SizedBox(height: 16),
+                            Text('Resetting budget…'),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              );
+              final app = context.read<AppController>();
+              try {
+                await app.resetBudget(budget.id);
+              } catch (e) {
+                if (context.mounted) {
+                  Navigator.pop(context); // close loader
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Reset failed: $e')),
+                  );
+                  return;
+                }
+              }
+              if (context.mounted) {
+                Navigator.pop(context); // close loader
+                // Invalidate snapshot cache so next open re-fetches
+                setState(() { _snapshots = []; _snapshotsLoaded = false; });
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Budget reset successfully'),
+                    duration: Duration(seconds: 2),
+                  ),
+                );
+              }
+            },
+            child: const Text('Reset'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showEditSheet(BuildContext context, BudgetDto budget) {
     showModalBottomSheet<void>(
       context: context,
@@ -132,6 +250,377 @@ class BudgetDetailScreen extends StatelessWidget {
       isScrollControlled: true,
       showDragHandle: true,
       builder: (_) => _AddCategorySheet(budgetId: budgetId),
+    );
+  }
+}
+
+// ── Snapshot history carousel ─────────────────────────────────────────────────
+
+class _ShowHistoryButton extends StatefulWidget {
+  const _ShowHistoryButton({
+    required this.budgetId,
+    required this.onLoad,
+    required this.snapshots,
+    required this.loaded,
+  });
+  final String budgetId;
+  final void Function(List<BudgetSnapshotDto>) onLoad;
+  final List<BudgetSnapshotDto> snapshots;
+  final bool loaded;
+
+  @override
+  State<_ShowHistoryButton> createState() => _ShowHistoryButtonState();
+}
+
+class _ShowHistoryButtonState extends State<_ShowHistoryButton> {
+  bool _loading = false;
+
+  Future<void> _show() async {
+    List<BudgetSnapshotDto> snaps = widget.snapshots;
+
+    if (!widget.loaded) {
+      setState(() => _loading = true);
+      try {
+        final app = context.read<AppController>();
+        snaps = await app.api.fetchBudgetSnapshots(widget.budgetId);
+        widget.onLoad(snaps);
+      } catch (_) {
+        widget.onLoad([]);
+      } finally {
+        if (mounted) setState(() => _loading = false);
+      }
+    }
+
+    if (!mounted) return;
+
+    if (snaps.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No previous periods yet'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
+    showDialog<void>(
+      context: context,
+      builder: (_) => _SnapshotDialog(snapshots: List.from(snaps.reversed)),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return GestureDetector(
+      onTap: _loading ? null : _show,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (_loading)
+            SizedBox(
+              width: 11,
+              height: 11,
+              child: CircularProgressIndicator(strokeWidth: 1.5, color: cs.primary),
+            )
+          else
+            Icon(Icons.history_rounded, size: 13, color: cs.primary),
+          const SizedBox(width: 5),
+          Text(
+            'View previous periods',
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: cs.primary,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SnapshotDialog extends StatefulWidget {
+  const _SnapshotDialog({required this.snapshots});
+  /// Ordered oldest → newest (newest is rightmost).
+  final List<BudgetSnapshotDto> snapshots;
+
+  @override
+  State<_SnapshotDialog> createState() => _SnapshotDialogState();
+}
+
+class _SnapshotDialogState extends State<_SnapshotDialog> {
+  late final ScrollController _sc;
+  static const double _cardW   = 300;
+  static const double _cardGap = 10;
+
+  @override
+  void initState() {
+    super.initState();
+    _sc = ScrollController();
+    // Scroll to the rightmost (latest) card after first frame.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_sc.hasClients) {
+        _sc.jumpTo(_sc.position.maxScrollExtent);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _sc.dispose();
+    super.dispose();
+  }
+
+  void _scrollBy(double dx) {
+    _sc.animateTo(
+      (_sc.offset + dx).clamp(0, _sc.position.maxScrollExtent),
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOut,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs    = theme.colorScheme;
+    final step  = _cardW + _cardGap;
+
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 40),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 22, 20, 22),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Text(
+                  'Previous periods',
+                  style: theme.textTheme.titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w700),
+                ),
+                const Spacer(),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close_rounded),
+                  iconSize: 18,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  style: IconButton.styleFrom(foregroundColor: cs.onSurfaceVariant),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            if (widget.snapshots.length == 1)
+              _SnapshotCard(
+                snapshot: widget.snapshots.first,
+                fillWidth: true,
+              )
+            else
+              SizedBox(
+                height: 130,
+                child: ListView.separated(
+                  controller: _sc,
+                  scrollDirection: Axis.horizontal,
+                  itemCount: widget.snapshots.length,
+                  padding: EdgeInsets.zero,
+                  separatorBuilder: (_, __) => const SizedBox(width: _cardGap),
+                  itemBuilder: (_, i) =>
+                      _SnapshotCard(snapshot: widget.snapshots[i]),
+                ),
+              ),
+            const SizedBox(height: 12),
+            if (widget.snapshots.length > 1)
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                _NavButton(
+                  icon: Icons.chevron_left_rounded,
+                  onTap: () => _scrollBy(-step),
+                ),
+                const SizedBox(width: 8),
+                _NavButton(
+                  icon: Icons.chevron_right_rounded,
+                  onTap: () => _scrollBy(step),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _NavButton extends StatelessWidget {
+  const _NavButton({required this.icon, required this.onTap});
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        width: 34,
+        height: 34,
+        decoration: BoxDecoration(
+          color: cs.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Icon(icon, size: 20, color: cs.onSurfaceVariant),
+      ),
+    );
+  }
+}
+
+class _SnapshotCard extends StatelessWidget {
+  const _SnapshotCard({required this.snapshot, this.fillWidth = false});
+  final BudgetSnapshotDto snapshot;
+  final bool fillWidth;
+
+  String _periodLabel() {
+    final start = snapshot.periodStart != null
+        ? DateTime.parse(snapshot.periodStart!)
+        : null;
+    final end = snapshot.periodEnd != null
+        ? DateTime.parse(snapshot.periodEnd!).subtract(const Duration(seconds: 1))
+        : null;
+    if (start == null) return 'Unknown period';
+    final fmt = (DateTime d) => '${_mon(d.month)} ${d.day}';
+    if (end == null) return 'From ${fmt(start)}';
+    return '${fmt(start)} – ${fmt(end)}';
+  }
+
+  static String _mon(int m) => const [
+    '', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+  ][m];
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs    = theme.colorScheme;
+
+    final estimated      = double.tryParse(snapshot.estimated) ?? 0;
+    final spent          = double.tryParse(snapshot.spent) ?? 0;
+    final available      = double.tryParse(snapshot.fundsAvailable) ?? 0;
+    final hasPlanned     = estimated > 0;
+    final pct            = hasPlanned ? (spent / estimated).clamp(0.0, 1.0) : 0.0;
+    final overBudget     = spent > estimated && hasPlanned;
+    final estimatedColor = AppColors.number;
+    final spentColor     = spent == 0 ? cs.onSurfaceVariant : AppColors.loss;
+    final availableColor = available < 0 ? AppColors.loss : AppColors.amount;
+    final barColor       = AppColors.loss.withAlpha(200);
+    final dividerColor   = cs.outlineVariant.withAlpha(80);
+
+    return Container(
+      width: fillWidth ? double.infinity : 300,
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerLowest,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: cs.outlineVariant.withAlpha(120)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Period label
+          Text(
+            _periodLabel(),
+            style: theme.textTheme.labelSmall?.copyWith(color: cs.onSurfaceVariant),
+          ),
+          const SizedBox(height: 10),
+          // ── [Estimated+Spent] · [bar] | [Funds Available] ──────────────
+          // Fixed height matches two _StatRow heights + gap (~48px).
+          SizedBox(
+            height: 48,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      _StatRow(
+                        label: 'Estimated',
+                        value: hasPlanned ? compactAmount(estimated) : '—',
+                        valueColor: estimatedColor,
+                      ),
+                      _StatRow(
+                        label: 'Spent',
+                        value: compactAmount(spent),
+                        valueColor: spentColor,
+                      ),
+                    ],
+                  ),
+                ),
+                // Bar fills exactly the 48px height.
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(5),
+                    child: SizedBox(
+                      width: 10,
+                      child: Stack(
+                        alignment: Alignment.bottomCenter,
+                        children: [
+                          Container(color: cs.surfaceContainerHighest),
+                          FractionallySizedBox(
+                            heightFactor: hasPlanned ? pct.clamp(0.0, 1.0) : 0.0,
+                            alignment: Alignment.bottomCenter,
+                            child: Container(color: barColor),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Container(width: 0.5, height: 48, color: dividerColor),
+                      const SizedBox(width: 10),
+                      Flexible(
+                        child: _StatColumn(
+                          label: 'Funds',
+                          value: compactAmount(available),
+                          valueColor: availableColor,
+                          icon: Icons.account_balance_wallet_outlined,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // % label below the bar.
+          Padding(
+            padding: const EdgeInsets.only(top: 3),
+            child: Row(
+              children: [
+                const Expanded(child: SizedBox()),
+                Text(
+                  hasPlanned ? '${(pct * 100).round()}%' : '—',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: overBudget ? Colors.red.shade700 : cs.onSurfaceVariant,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const Expanded(child: SizedBox()),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -241,18 +730,19 @@ class _BudgetSummaryCard extends StatelessWidget {
 // ── Schedule info row (read-only) ─────────────────────────────────────────────
 
 class _ScheduleRow extends StatelessWidget {
-  const _ScheduleRow({required this.budget, required this.onEdit});
+  const _ScheduleRow({required this.budget, required this.onEdit, required this.onReset});
   final BudgetDto budget;
   final VoidCallback onEdit;
+  final VoidCallback onReset;
 
   String _label() {
     if (budget.resetType != 'scheduled') return 'Manual reset';
     final sched = budget.resetSchedule;
     if (sched == null) return 'Scheduled – every month';
     final isLastDay = sched['is_last_day_of_month'] as bool? ?? false;
-    if (isLastDay) return 'Every month · Last day';
+    if (isLastDay) return 'Resets · Every month on last day';
     final date = (sched['date'] as num?)?.toInt();
-    if (date != null) return 'Every month · Resets on ${_ordinal(date)}';
+    if (date != null) return 'Resets · Every month on ${_ordinal(date)}';
     return 'Scheduled – every month';
   }
 
@@ -273,7 +763,7 @@ class _ScheduleRow extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         Icon(
-          isScheduled ? Icons.autorenew_rounded : Icons.calendar_today_outlined,
+          isScheduled ? Icons.autorenew_rounded : Icons.loop_rounded,
           size: 14,
           color: muted,
         ),
@@ -282,13 +772,36 @@ class _ScheduleRow extends StatelessWidget {
           _label(),
           style: Theme.of(context).textTheme.bodySmall?.copyWith(color: muted),
         ),
-        const SizedBox(width: 6),
+        const SizedBox(width: 10),
         InkWell(
           borderRadius: BorderRadius.circular(20),
           onTap: onEdit,
           child: Padding(
-            padding: const EdgeInsets.all(3),
-            child: Icon(Icons.edit_outlined, size: 13, color: muted),
+            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+            child: Text(
+              'Edit',
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: muted,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 4),
+        Text('·', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: muted)),
+        const SizedBox(width: 4),
+        InkWell(
+          borderRadius: BorderRadius.circular(20),
+          onTap: onReset,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+            child: Text(
+              'Reset now',
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: Theme.of(context).colorScheme.primary,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ),
         ),
       ],

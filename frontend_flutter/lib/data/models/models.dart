@@ -194,6 +194,34 @@ class TransactionDto {
       );
 }
 
+class BudgetSnapshotDto {
+  BudgetSnapshotDto({
+    required this.id,
+    required this.estimated,
+    required this.spent,
+    required this.fundsAvailable,
+    this.periodStart,
+    this.periodEnd,
+  });
+
+  final String id;
+  final String estimated;
+  final String spent;
+  final String fundsAvailable;
+  final String? periodStart;
+  final String? periodEnd;
+
+  factory BudgetSnapshotDto.fromJson(Map<String, dynamic> j) =>
+      BudgetSnapshotDto(
+        id: j['id'] as String,
+        estimated: j['estimated'] as String,
+        spent: j['spent'] as String,
+        fundsAvailable: j['fundsAvailable'] as String,
+        periodStart: j['periodStart'] as String?,
+        periodEnd: j['periodEnd'] as String?,
+      );
+}
+
 class StatementJobDto {
   StatementJobDto({
     required this.jobId,

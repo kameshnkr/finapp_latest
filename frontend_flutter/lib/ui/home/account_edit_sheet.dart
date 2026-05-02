@@ -421,9 +421,14 @@ class _AccountEditSheetState extends State<AccountEditSheet> {
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      builder: (_) => BudgetReallocationSheet(
-        account: account,
-        targetBudgetId: allocation.budgetId,
+      builder: (ctx) => AnimatedPadding(
+        duration: const Duration(milliseconds: 150),
+        curve: Curves.easeOut,
+        padding: MediaQuery.viewInsetsOf(ctx),
+        child: BudgetReallocationSheet(
+          account: account,
+          targetBudgetId: allocation.budgetId,
+        ),
       ),
     );
   }

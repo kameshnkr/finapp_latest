@@ -97,8 +97,96 @@ export function computeCurrentPeriod(
 }
 
 // ---------------------------------------------------------------------------
-// Reset check & execution
+// Manual reset (user-triggered)
 // ---------------------------------------------------------------------------
+
+/**
+ * Manually resets a budget period, regardless of reset_type.
+ *
+ * - New period_start = today (IST midnight, stored as UTC)
+ * - Scheduled: new period_end = computeCurrentPeriod(schedule, today).end
+ * - Manual:    period_end stays null (manual budgets are always open-ended)
+ * - Snapshots the old period, zeroes spent on the budget and all categories.
+ */
+export async function manuallyResetBudget(
+  userId: bigint,
+  budgetId: bigint
+): Promise<void> {
+  const budget = await budgetRepo.getBudgetForUser(pool, userId, budgetId);
+  if (!budget) throw Object.assign(new Error("Budget not found"), { status: 404 });
+
+  const now = new Date();
+
+  // New period boundaries
+  const newStart = istMidnightToUtc(
+    toISTDate(now).year,
+    toISTDate(now).month,
+    toISTDate(now).day
+  );
+  let newEnd: Date | null = null;
+  if (budget.reset_type === "scheduled" && budget.reset_schedule) {
+    newEnd = computeCurrentPeriod(budget.reset_schedule, now).end;
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // Snapshot values from source-of-truth tables (before the reset)
+    const [estRes, faRes] = await Promise.all([
+      client.query<{ s: string }>(
+        `SELECT COALESCE(SUM(estimated), 0)::text AS s
+         FROM budget_categories WHERE budget_id = $1`,
+        [budget.id]
+      ),
+      client.query<{ s: string }>(
+        `SELECT COALESCE(SUM(amount), 0)::text AS s
+         FROM account_budget_allocations WHERE budget_id = $1`,
+        [budget.id]
+      ),
+    ]);
+
+    // Snapshot the period being closed — period_end is TODAY (newStart),
+    // not the scheduled future end, because the user is resetting it now.
+    await snapshotRepo.insertBudgetSnapshot(client, {
+      budgetId: budget.id,
+      estimated: estRes.rows[0]?.s ?? "0",
+      spent: budget.spent,
+      fundsAvailable: faRes.rows[0]?.s ?? "0",
+      periodStart: budget.period_start,
+      periodEnd: newStart, // exclusive boundary = start of new period = end of old period
+    });
+
+    // Update budget period + zero spent
+    await client.query(
+      `UPDATE budgets
+       SET period_start = $1,
+           period_end   = $2,
+           spent        = 0,
+           version      = version + 1,
+           updated_at   = now()
+       WHERE id = $3 AND user_id = $4`,
+      [newStart, newEnd, budget.id, userId]
+    );
+
+    // Zero category spend
+    await client.query(
+      `UPDATE budget_categories
+       SET spent      = 0,
+           remaining  = estimated,
+           updated_at = now()
+       WHERE budget_id = $1`,
+      [budget.id]
+    );
+
+    await client.query("COMMIT");
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
+}
 
 function isExpired(budget: BudgetRow, nowUtc: Date): boolean {
   if (budget.reset_type !== "scheduled") return false;

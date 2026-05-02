@@ -281,6 +281,16 @@ class AppController extends ChangeNotifier {
     }
   }
 
+  Future<void> resetBudget(String budgetId) async {
+    await _api.resetBudget(budgetId);
+    // Quiet refresh — don't toggle loading flag to avoid global loading bars
+    try {
+      accounts = await _api.fetchAccounts();
+      budgets  = await _api.fetchBudgets();
+      notifyListeners();
+    } catch (_) {}
+  }
+
   Future<void> refreshAccountsBudgets() async {
     loading = true;
     notifyListeners();

@@ -3,6 +3,9 @@ import { z } from "zod";
 import type { AuthedRequest } from "../middleware/authMiddleware.js";
 import * as budgetService from "../services/budgetService.js";
 import * as budgetCreateService from "../services/budgetCreateService.js";
+import { manuallyResetBudget } from "../services/budgetResetService.js";
+import { pool } from "../db/pool.js";
+import * as snapshotRepo from "../repositories/budgetSnapshotRepository.js";
 
 // ---------------------------------------------------------------------------
 // Shared sub-schemas
@@ -110,6 +113,26 @@ export async function create(req: AuthedRequest, res: Response): Promise<void> {
     body.reset_schedule ?? null
   );
   res.status(201).json({ budget: result });
+}
+
+export async function listSnapshots(req: AuthedRequest, res: Response): Promise<void> {
+  const budgetId = BigInt(req.params.id);
+  const rows = await snapshotRepo.listSnapshots(pool, req.userId, budgetId);
+  const snapshots = rows.map((r) => ({
+    id: r.id.toString(),
+    estimated: r.estimated,
+    spent: r.spent,
+    fundsAvailable: r.funds_available,
+    periodStart: r.period_start?.toISOString() ?? null,
+    periodEnd: r.period_end?.toISOString() ?? null,
+  }));
+  res.json({ snapshots });
+}
+
+export async function resetBudget(req: AuthedRequest, res: Response): Promise<void> {
+  const budgetId = BigInt(req.params.id);
+  await manuallyResetBudget(req.userId, budgetId);
+  res.json({ ok: true });
 }
 
 export async function reallocate(req: AuthedRequest, res: Response): Promise<void> {
