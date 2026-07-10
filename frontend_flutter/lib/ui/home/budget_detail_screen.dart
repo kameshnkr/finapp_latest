@@ -627,7 +627,7 @@ class _SnapshotCard extends StatelessWidget {
 
 // ── Budget summary card (mirrors list card layout) ────────────────────────────
 
-class _BudgetSummaryCard extends StatelessWidget {
+class _BudgetSummaryCard extends StatefulWidget {
   const _BudgetSummaryCard({
     required this.budget,
     required this.planned,
@@ -647,19 +647,39 @@ class _BudgetSummaryCard extends StatelessWidget {
   final bool overBudget;
 
   @override
+  State<_BudgetSummaryCard> createState() => _BudgetSummaryCardState();
+}
+
+class _BudgetSummaryCardState extends State<_BudgetSummaryCard> {
+  bool _expanded = false;
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs    = theme.colorScheme;
 
     final estimatedColor = AppColors.number;
-    final spentColor     = spent == 0 ? cs.onSurfaceVariant : AppColors.loss;
-    final availableColor = available < 0 ? AppColors.loss : AppColors.amount;
+    final spentColor     = widget.spent == 0 ? cs.onSurfaceVariant : AppColors.loss;
+    final availableColor = widget.available < 0 ? AppColors.loss : AppColors.amount;
     final barColor       = AppColors.loss.withAlpha(200);
     final dividerColor   = cs.outlineVariant.withAlpha(80);
 
-    final acctLabel = budget.allocationCount == 0
+    final acctLabel = widget.budget.allocationCount == 0
         ? null
-        : '${budget.allocationCount} account${budget.allocationCount == 1 ? '' : 's'}';
+        : '${widget.budget.allocationCount} account${widget.budget.allocationCount == 1 ? '' : 's'}';
+
+    // Compute Fixed / Variable breakdown from category list.
+    double fixedEst = 0, fixedSp = 0, varEst = 0, varSp = 0;
+    for (final c in widget.budget.categories) {
+      final est = double.tryParse(c.estimated) ?? 0;
+      final sp  = double.tryParse(c.spent) ?? 0;
+      if (c.categoryType == 'fixed') {
+        fixedEst += est; fixedSp += sp;
+      } else {
+        varEst += est; varSp += sp;
+      }
+    }
+    final hasCategories = widget.budget.categories.isNotEmpty;
 
     return Card(
       child: Padding(
@@ -671,7 +691,7 @@ class _BudgetSummaryCard extends StatelessWidget {
             Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                // Left: Estimated + Spent
+                // Left: Estimated + Spent + breakdown toggle
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -679,23 +699,56 @@ class _BudgetSummaryCard extends StatelessWidget {
                     children: [
                       _StatRow(
                         label: 'Estimated',
-                        value: hasPlanned ? compactAmount(planned) : '—',
+                        value: widget.hasPlanned ? compactAmount(widget.planned) : '—',
                         valueColor: estimatedColor,
                       ),
                       const SizedBox(height: 8),
                       _StatRow(
                         label: 'Spent',
-                        value: compactAmount(spent),
+                        value: compactAmount(widget.spent),
                         valueColor: spentColor,
                       ),
+                      if (hasCategories) ...[
+                        const SizedBox(height: 6),
+                        // Indent to align with the value column, not the label column.
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const SizedBox(width: 72),
+                            GestureDetector(
+                              onTap: () => setState(() => _expanded = !_expanded),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                              Text(
+                                'Breakdown',
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                  color: cs.primary,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(width: 2),
+                              Icon(
+                                _expanded
+                                    ? Icons.keyboard_arrow_up_rounded
+                                    : Icons.keyboard_arrow_down_rounded,
+                                size: 14,
+                                color: cs.primary,
+                              ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                     ],
                   ),
                 ),
                 // Centre: vertical bar
                 _VerticalBar(
-                  pct: pct,
-                  hasPlanned: hasPlanned,
-                  overBudget: overBudget,
+                  pct: widget.pct,
+                  hasPlanned: widget.hasPlanned,
+                  overBudget: widget.overBudget,
                   barColor: barColor,
                 ),
                 // Right: Funds Available
@@ -708,7 +761,7 @@ class _BudgetSummaryCard extends StatelessWidget {
                       const SizedBox(width: 14),
                       _StatColumn(
                         label: 'Funds Available',
-                        value: compactAmount(available),
+                        value: compactAmount(widget.available),
                         valueColor: availableColor,
                         subtitle: acctLabel,
                         icon: Icons.account_balance_wallet_outlined,
@@ -718,11 +771,102 @@ class _BudgetSummaryCard extends StatelessWidget {
                 ),
               ],
             ),
-            // ── Period row ─────────────────────────────────────────────────
-            _PeriodRow(budget: budget),
+            // ── Fixed / Variable breakdown (expanded) ──────────────────────
+            if (_expanded && hasCategories)
+              _BreakdownSection(
+                fixedEst: fixedEst,
+                fixedSp: fixedSp,
+                varEst: varEst,
+                varSp: varSp,
+              ),
+            // ── Period row (always at the bottom) ──────────────────────────
+            _PeriodRow(budget: widget.budget),
           ],
         ),
       ),
+    );
+  }
+}
+
+// ── Fixed / Variable breakdown section ───────────────────────────────────────
+
+class _BreakdownSection extends StatelessWidget {
+  const _BreakdownSection({
+    required this.fixedEst,
+    required this.fixedSp,
+    required this.varEst,
+    required this.varSp,
+  });
+
+  final double fixedEst;
+  final double fixedSp;
+  final double varEst;
+  final double varSp;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs    = theme.colorScheme;
+    final muted = cs.onSurfaceVariant;
+
+    final labelStyle = theme.textTheme.labelSmall?.copyWith(color: muted);
+    final typeStyle  = theme.textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w600);
+    final valStyle   = theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600);
+
+    Widget valueText(double v, {bool isSpent = false}) {
+      final color = isSpent
+          ? (v > 0 ? AppColors.loss : muted)
+          : AppColors.number;
+      return Text(compactAmount(v), style: valStyle?.copyWith(color: color));
+    }
+
+    // Fixed column widths — keeps the table within the left portion of the
+    // card and away from the Funds Available section on the right.
+    const double typeW  = 72;
+    const double valueW = 76;
+
+    Widget cell(String text, {TextStyle? style, TextAlign align = TextAlign.right}) =>
+        Text(text, style: style, textAlign: align);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 10),
+        Container(height: 0.5, color: cs.outlineVariant.withAlpha(100)),
+        const SizedBox(height: 10),
+        // Header row
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(width: typeW),
+            SizedBox(width: valueW, child: cell('Estimated', style: labelStyle, align: TextAlign.right)),
+            const SizedBox(width: 16),
+            SizedBox(width: valueW, child: cell('Spent', style: labelStyle, align: TextAlign.right)),
+          ],
+        ),
+        const SizedBox(height: 7),
+        // Fixed row
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(width: typeW, child: Text('Fixed', style: typeStyle)),
+            SizedBox(width: valueW, child: Align(alignment: Alignment.centerRight, child: valueText(fixedEst))),
+            const SizedBox(width: 16),
+            SizedBox(width: valueW, child: Align(alignment: Alignment.centerRight, child: valueText(fixedSp, isSpent: true))),
+          ],
+        ),
+        const SizedBox(height: 5),
+        // Variable row
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(width: typeW, child: Text('Variable', style: typeStyle)),
+            SizedBox(width: valueW, child: Align(alignment: Alignment.centerRight, child: valueText(varEst))),
+            const SizedBox(width: 16),
+            SizedBox(width: valueW, child: Align(alignment: Alignment.centerRight, child: valueText(varSp, isSpent: true))),
+          ],
+        ),
+      ],
     );
   }
 }
@@ -991,14 +1135,17 @@ class _CategoryEstimateCard extends StatefulWidget {
 
 class _CategoryEstimateCardState extends State<_CategoryEstimateCard> {
   bool _editing = false;
+  bool _saving  = false;
   late final TextEditingController _name;
   late final TextEditingController _estimated;
+  late String _categoryType;
 
   @override
   void initState() {
     super.initState();
-    _name      = TextEditingController(text: widget.category.name);
-    _estimated = TextEditingController(text: widget.category.estimated);
+    _name          = TextEditingController(text: widget.category.name);
+    _estimated     = TextEditingController(text: widget.category.estimated);
+    _categoryType  = widget.category.categoryType;
   }
 
   @override
@@ -1006,8 +1153,9 @@ class _CategoryEstimateCardState extends State<_CategoryEstimateCard> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.category.version != widget.category.version ||
         oldWidget.category.id != widget.category.id) {
-      _name.text      = widget.category.name;
+      _name.text     = widget.category.name;
       _estimated.text = widget.category.estimated;
+      _categoryType  = widget.category.categoryType;
     }
   }
 
@@ -1020,31 +1168,35 @@ class _CategoryEstimateCardState extends State<_CategoryEstimateCard> {
 
   void _cancelEdit() {
     setState(() {
-      _editing        = false;
-      _name.text      = widget.category.name;
+      _editing       = false;
+      _name.text     = widget.category.name;
       _estimated.text = widget.category.estimated;
+      _categoryType  = widget.category.categoryType;
     });
   }
 
   Future<void> _save() async {
-    final app      = context.read<AppController>();
-    final nameVal  = _name.text.trim();
-    final est      = _estimated.text.trim();
+    final nameVal = _name.text.trim();
+    final est     = _estimated.text.trim();
     if (nameVal.isEmpty || est.isEmpty) return;
+    setState(() => _saving = true);
+    final app = context.read<AppController>();
     try {
       await app.api.upsertCategory(
         widget.budgetId,
         categoryId: widget.category.id,
         name: nameVal,
         estimated: est,
+        categoryType: _categoryType,
         version: widget.category.version,
       );
       await app.refreshAccountsBudgets();
       if (!mounted) return;
-      setState(() => _editing = false);
+      setState(() { _editing = false; _saving = false; });
       showTopSnack(context, 'Category updated');
     } catch (e) {
       if (!mounted) return;
+      setState(() => _saving = false);
       showTopSnack(context, 'Error: $e');
     }
   }
@@ -1097,10 +1249,16 @@ class _CategoryEstimateCardState extends State<_CategoryEstimateCard> {
     final overSpent = remaining < 0;
     final barColor  = overSpent ? cs.error : cs.primary;
 
+    final isFixed = c.categoryType == 'fixed';
+    final badgeBg = isFixed
+        ? cs.primaryContainer.withAlpha(180)
+        : cs.surfaceContainerHighest;
+    final badgeFg = isFixed ? cs.onPrimaryContainer : cs.onSurfaceVariant;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Name + action icons
+        // Name + type badge + action icons
         Row(
           children: [
             Expanded(
@@ -1111,6 +1269,23 @@ class _CategoryEstimateCardState extends State<_CategoryEstimateCard> {
                 overflow: TextOverflow.ellipsis,
               ),
             ),
+            const SizedBox(width: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+              decoration: BoxDecoration(
+                color: badgeBg,
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text(
+                isFixed ? 'Fixed' : 'Variable',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  fontSize: 10,
+                  color: badgeFg,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
             IconButton(
               icon: const Icon(Icons.edit_outlined, size: 17),
               tooltip: 'Edit',
@@ -1203,15 +1378,19 @@ class _CategoryEstimateCardState extends State<_CategoryEstimateCard> {
   }
 
   Widget _buildEditMode(ThemeData theme) {
+    final cs = theme.colorScheme;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        if (_saving) LinearProgressIndicator(minHeight: 3, color: cs.primary),
+        const SizedBox(height: 2),
         Text('Edit category',
             style: theme.textTheme.titleSmall
                 ?.copyWith(fontWeight: FontWeight.w600)),
         const SizedBox(height: 10),
         TextField(
           controller: _name,
+          enabled: !_saving,
           decoration: const InputDecoration(
             labelText: 'Category name',
             isDense: true,
@@ -1220,6 +1399,7 @@ class _CategoryEstimateCardState extends State<_CategoryEstimateCard> {
         const SizedBox(height: 10),
         TextField(
           controller: _estimated,
+          enabled: !_saving,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
           inputFormatters: [
             FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}')),
@@ -1228,6 +1408,11 @@ class _CategoryEstimateCardState extends State<_CategoryEstimateCard> {
             labelText: 'Estimated (planned)',
             isDense: true,
           ),
+        ),
+        const SizedBox(height: 10),
+        _CategoryTypeToggle(
+          value: _categoryType,
+          onChanged: _saving ? (_) {} : (v) => setState(() => _categoryType = v),
         ),
         const SizedBox(height: 6),
         Text(
@@ -1238,9 +1423,15 @@ class _CategoryEstimateCardState extends State<_CategoryEstimateCard> {
         Row(
           mainAxisAlignment: MainAxisAlignment.end,
           children: [
-            OutlinedButton(onPressed: _cancelEdit, child: const Text('Cancel')),
+            OutlinedButton(
+              onPressed: _saving ? null : _cancelEdit,
+              child: const Text('Cancel'),
+            ),
             const SizedBox(width: 8),
-            FilledButton(onPressed: _save, child: const Text('Save')),
+            FilledButton(
+              onPressed: _saving ? null : _save,
+              child: const Text('Save'),
+            ),
           ],
         ),
       ],
@@ -1406,7 +1597,8 @@ class _AddCategorySheet extends StatefulWidget {
 class _AddCategorySheetState extends State<_AddCategorySheet> {
   final _name      = TextEditingController();
   final _estimated = TextEditingController();
-  bool _saving     = false;
+  String _categoryType = 'variable';
+  bool _saving         = false;
 
   @override
   void dispose() {
@@ -1426,6 +1618,7 @@ class _AddCategorySheetState extends State<_AddCategorySheet> {
         widget.budgetId,
         name: n,
         estimated: est.isEmpty ? '0' : est,
+        categoryType: _categoryType,
       );
       await app.refreshAccountsBudgets();
       if (!mounted) return;
@@ -1478,6 +1671,11 @@ class _AddCategorySheetState extends State<_AddCategorySheet> {
             ),
             onSubmitted: (_) => _create(),
           ),
+          const SizedBox(height: 12),
+          _CategoryTypeToggle(
+            value: _categoryType,
+            onChanged: (v) => setState(() => _categoryType = v),
+          ),
           const SizedBox(height: 16),
           FilledButton(
             onPressed: _saving ? null : _create,
@@ -1485,6 +1683,64 @@ class _AddCategorySheetState extends State<_AddCategorySheet> {
           ),
         ],
       ),
+    );
+  }
+}
+
+// ── Category type toggle (Fixed / Variable) ───────────────────────────────────
+
+class _CategoryTypeToggle extends StatelessWidget {
+  const _CategoryTypeToggle({
+    required this.value,
+    required this.onChanged,
+  });
+
+  final String value;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs    = theme.colorScheme;
+
+    Widget chip(String type, String label) {
+      final selected = value == type;
+      return GestureDetector(
+        onTap: () => onChanged(type),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+          decoration: BoxDecoration(
+            color: selected ? cs.primaryContainer : cs.surface,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: selected ? cs.primary.withAlpha(120) : cs.outlineVariant.withAlpha(160),
+              width: 1,
+            ),
+          ),
+          child: Text(
+            label,
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: selected ? cs.onPrimaryContainer : cs.onSurfaceVariant,
+              fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          'Type',
+          style: theme.textTheme.labelSmall?.copyWith(color: cs.onSurfaceVariant),
+        ),
+        const SizedBox(width: 10),
+        chip('variable', 'Variable'),
+        const SizedBox(width: 8),
+        chip('fixed', 'Fixed'),
+      ],
     );
   }
 }
