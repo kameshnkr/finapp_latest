@@ -710,35 +710,30 @@ class _BudgetSummaryCardState extends State<_BudgetSummaryCard> {
                       ),
                       if (hasCategories) ...[
                         const SizedBox(height: 6),
-                        // Indent to align with the value column, not the label column.
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const SizedBox(width: 72),
-                            GestureDetector(
-                              onTap: () => setState(() => _expanded = !_expanded),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                    'Breakdown',
-                                    style: theme.textTheme.labelSmall?.copyWith(
-                                      color: cs.primary,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 2),
-                                  Icon(
-                                    _expanded
-                                        ? Icons.keyboard_arrow_up_rounded
-                                        : Icons.keyboard_arrow_down_rounded,
-                                    size: 14,
+                        Center(
+                          child: GestureDetector(
+                            onTap: () => setState(() => _expanded = !_expanded),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  'Breakdown',
+                                  style: theme.textTheme.labelSmall?.copyWith(
                                     color: cs.primary,
+                                    fontWeight: FontWeight.w600,
                                   ),
-                                ],
-                              ),
+                                ),
+                                const SizedBox(width: 2),
+                                Icon(
+                                  _expanded
+                                      ? Icons.keyboard_arrow_up_rounded
+                                      : Icons.keyboard_arrow_down_rounded,
+                                  size: 14,
+                                  color: cs.primary,
+                                ),
+                              ],
                             ),
-                          ],
+                          ),
                         ),
                       ],
                     ],
@@ -1290,34 +1285,41 @@ class _CategoryEstimateCardState extends State<_CategoryEstimateCard> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Name on the left, type badge right-aligned before action icons
+        // Name + badge | action icons pinned to right edge
         Row(
           children: [
             Expanded(
-              child: Text(
-                c.name,
-                style: theme.textTheme.titleSmall
-                    ?.copyWith(fontWeight: FontWeight.w600),
-                overflow: TextOverflow.ellipsis,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Flexible(
+                    child: Text(
+                      c.name,
+                      style: theme.textTheme.titleSmall
+                          ?.copyWith(fontWeight: FontWeight.w600),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: badgeBg,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.fromBorderSide(badgeBorder),
+                    ),
+                    child: Text(
+                      isFixed ? 'Fixed' : 'Variable',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        fontSize: 10,
+                        color: badgeFg,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-              decoration: BoxDecoration(
-                color: badgeBg,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.fromBorderSide(badgeBorder),
-              ),
-              child: Text(
-                isFixed ? 'Fixed' : 'Variable',
-                style: theme.textTheme.labelSmall?.copyWith(
-                  fontSize: 10,
-                  color: badgeFg,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
             IconButton(
               icon: const Icon(Icons.edit_outlined, size: 17),
               tooltip: 'Edit',
@@ -1325,17 +1327,17 @@ class _CategoryEstimateCardState extends State<_CategoryEstimateCard> {
               constraints: const BoxConstraints(),
               style: IconButton.styleFrom(
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap),
-              onPressed: _deleting ? null : () => setState(() => _editing = true),
+              onPressed: () => setState(() => _editing = true),
             ),
             const SizedBox(width: 8),
             IconButton(
-              icon: Icon(Icons.delete_outline, size: 17, color: _deleting ? cs.onSurface.withAlpha(80) : cs.error),
+              icon: Icon(Icons.delete_outline, size: 17, color: cs.error),
               tooltip: 'Delete',
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints(),
               style: IconButton.styleFrom(
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap),
-              onPressed: _deleting ? null : _delete,
+              onPressed: _delete,
             ),
           ],
         ),
@@ -1371,13 +1373,11 @@ class _CategoryEstimateCardState extends State<_CategoryEstimateCard> {
               ),
             ),
             const SizedBox(width: 14),
-            _VerticalBar(
+            _CirclePct(
               pct: pct,
-              hasPlanned: estimated > 0,
+              hasEstimated: estimated > 0,
               overBudget: overSpent,
-              barColor: Colors.orange.shade200,
-              barWidth: 7,
-              barHeight: 36,
+              color: Colors.orange.shade300,
             ),
           ],
         ),
@@ -1841,6 +1841,57 @@ class _StatColumn extends StatelessWidget {
               )),
         ],
       ],
+    );
+  }
+}
+
+class _CirclePct extends StatelessWidget {
+  const _CirclePct({
+    required this.pct,
+    required this.hasEstimated,
+    required this.overBudget,
+    required this.color,
+    this.size = 28,
+  });
+
+  final double pct;
+  final bool hasEstimated;
+  final bool overBudget;
+  final Color color;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final label = hasEstimated ? '${(pct * 100).round()}%' : '—';
+    final labelColor = overBudget ? Colors.red.shade700 : cs.onSurfaceVariant;
+
+    return SizedBox(
+      width: size,
+      height: size,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          CircularProgressIndicator(
+            value: hasEstimated ? pct.clamp(0.0, 1.0) : 0.0,
+            strokeWidth: 3,
+            backgroundColor: cs.surfaceContainerHighest,
+            color: color,
+            strokeCap: StrokeCap.round,
+          ),
+          Center(
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 7,
+                color: labelColor,
+                fontWeight: FontWeight.w700,
+                height: 1,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
