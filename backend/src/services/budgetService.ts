@@ -58,6 +58,7 @@ export async function listBudgetsWithCategories(userId: bigint) {
         estimated: c.estimated,
         spent: c.spent,
         remaining: c.remaining,
+        categoryType: c.category_type,
         version: c.version,
         createdAt: c.created_at.toISOString(),
         updatedAt: c.updated_at.toISOString(),
@@ -108,6 +109,7 @@ export async function upsertCategory(
     name: string;
     estimated: string;
     version?: number;
+    categoryType: string;
   }
 ) {
   const client = await pool.connect();
@@ -123,11 +125,12 @@ export async function upsertCategory(
         body.id,
         body.name,
         body.estimated,
-        body.version ?? 0
+        body.version ?? 0,
+        body.categoryType
       );
       if (!row) throw new HttpError(404, "Category not found or version conflict");
     } else {
-      await categoryRepo.insertCategory(client, budgetId, body.name, body.estimated);
+      await categoryRepo.insertCategory(client, budgetId, body.name, body.estimated, body.categoryType);
     }
 
     await recalcBudgetAggregates(client, budgetId);
