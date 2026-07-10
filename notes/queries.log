@@ -1,0 +1,41 @@
+SELECT amount, statement_seq, transaction_date, description, description_readable, "source", *
+FROM transactions 
+WHERE transaction_date IS NOT NULL
+ORDER BY transaction_date DESC, statement_seq DESC;
+
+select * from users u 
+
+select count(id) from transactions t where "source" ='statement' and user_id = 1774781766102307688
+
+select * from transactions t where "source" ='statement' and user_id = 1774781766102307688 order by transaction_date desc
+
+select amount,transaction_date,statement_seq,description_readable, created_at,description,fingerprint from transactions t where "source" ='statement' and user_id = 1774781766102307688 order by transaction_date desc
+
+delete from transactions where user_id = 1774781766102307688
+
+
+payload:
+from
+2025-04-18T12:00:52.286Z
+to
+2026-04-18T18:29:59.000Z
+limit
+50
+
+SELECT id, user_id, account_id, budget_id, category_id, direction, amount::text, status, source,
+  transaction_type, description, description_readable, note, settled_at, transaction_date, fingerprint, statement_seq, version, created_at, updated_at
+     FROM transactions
+     WHERE user_id = '1774781766102307688'
+       AND status = 'settled'
+       AND transaction_date >= '2025-04-18T12:00:52.286Z'::timestamptz::date
+       AND transaction_date <= '2026-04-18T18:29:59.000Z'::timestamptz::date
+       
+     ORDER BY transaction_date DESC, statement_seq DESC NULLS LAST, id DESC
+     LIMIT 51
+     
+     
+ 
+     
+     
+     
+

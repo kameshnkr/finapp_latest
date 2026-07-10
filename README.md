@@ -61,6 +61,8 @@ flutter pub get
 flutter run --dart-define=API_BASE=http://127.0.0.1:3000
 or
 flutter run --dart-define=API_BASE=https://finapp-latest.onrender.com
+or
+flutter run --dart-define=API_BASE=https://finapp-api-production.up.railway.app
 ```
 
 Log in with any email and the OTP from `STATIC_OTP` in the backend `.env`.
@@ -79,6 +81,8 @@ flutter pub get
 flutter build apk --release --dart-define=API_BASE=https://uninveigled-eveline-twiggy.ngrok-free.dev
 or
 flutter build apk --release --dart-define=API_BASE=https://finapp-latest.onrender.com
+or
+flutter build apk --release --dart-define=API_BASE=https://finapp-api-production.up.railway.app
 ```
 
 Output file:

@@ -32,6 +32,8 @@ class _AccountBalanceAdjustSheetState
   final Map<String, TextEditingController> _distCtrls = {};
   bool _saving = false;
   bool _unallocUserEdited = false;
+  bool _hasMoreBelow = false;
+  bool _hasMoreAbove = false;
 
   // ── Derived ───────────────────────────────────────────────────────────────
 
@@ -127,10 +129,10 @@ class _AccountBalanceAdjustSheetState
     super.initState();
     _balanceCtrl =
         TextEditingController(text: _formatAmt(_currentBalance));
-    _unallocCtrl = TextEditingController(text: '0');
+    _unallocCtrl = TextEditingController(text: '');
 
     for (final a in widget.account.allocations) {
-      _distCtrls[a.budgetId] = TextEditingController(text: '0')
+      _distCtrls[a.budgetId] = TextEditingController(text: '')
         ..addListener(_onDistChanged);
     }
 
@@ -153,22 +155,22 @@ class _AccountBalanceAdjustSheetState
     if (!_unallocUserEdited) {
       if (_isIncrease) {
         // All new funds default to unallocated
-        _setUnallocSilently(_formatAmt(_delta));
+        _setUnallocSilently(_ctrlValue(_delta));
       } else if (_isDecrease) {
         // Default: deduct from unallocated first, up to available
         final autoFill =
             min(_currentUnallocated > 0.005 ? _currentUnallocated : 0.0,
                     _delta.abs())
                 .clamp(0.0, _delta.abs());
-        _setUnallocSilently(_formatAmt(autoFill));
+        _setUnallocSilently(_ctrlValue(autoFill));
       } else {
-        _setUnallocSilently('0');
+        _setUnallocSilently('');
       }
     }
     if (_isNoChange) {
       _unallocUserEdited = false;
-      _setUnallocSilently('0');
-      for (final c in _distCtrls.values) _setDistSilently(c, '0');
+      _setUnallocSilently('');
+      for (final c in _distCtrls.values) _setDistSilently(c, '');
     }
     setState(() {});
   }
@@ -198,8 +200,8 @@ class _AccountBalanceAdjustSheetState
 
   void _reset() {
     _unallocUserEdited = false;
-    _setUnallocSilently('0');
-    for (final c in _distCtrls.values) _setDistSilently(c, '0');
+    _setUnallocSilently('');
+    for (final c in _distCtrls.values) _setDistSilently(c, '');
     final initial = _formatAmt(_currentBalance);
     if (_balanceCtrl.text != initial) _balanceCtrl.text = initial;
     setState(() {});
@@ -250,6 +252,9 @@ class _AccountBalanceAdjustSheetState
     return v.toStringAsFixed(2);
   }
 
+  /// Returns empty string for zero so fields show the hint placeholder.
+  String _ctrlValue(double v) => v.abs() < 0.005 ? '' : _formatAmt(v);
+
   String get _ctaLabel {
     if (_isNoChange) return 'No Change';
     if (_isIncrease) {
@@ -277,7 +282,7 @@ class _AccountBalanceAdjustSheetState
       expand: false,
       initialChildSize: 0.85,
       minChildSize: 0.5,
-      maxChildSize: 0.95,
+      maxChildSize: 1.0,
       builder: (context, scrollCtrl) {
         return Column(
           children: [
@@ -332,13 +337,13 @@ class _AccountBalanceAdjustSheetState
 
             // ── STICKY TOP: balance card + section label ─────────────────
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   _buildBalanceCard(theme, cs),
                   if (!_isNoChange) ...[
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 8),
                     Text(
                       _isIncrease ? 'DISTRIBUTE TO' : 'DEDUCT FROM',
                       style: theme.textTheme.labelSmall?.copyWith(
@@ -347,7 +352,7 @@ class _AccountBalanceAdjustSheetState
                         letterSpacing: 1.0,
                       ),
                     ),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 4),
                     Row(
                       children: [
                         const Spacer(),
@@ -368,7 +373,7 @@ class _AccountBalanceAdjustSheetState
                         ),
                       ],
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 2),
                   ],
                 ],
               ),
@@ -390,43 +395,66 @@ class _AccountBalanceAdjustSheetState
                       Scrollbar(
                         controller: scrollCtrl,
                         thumbVisibility: true,
-                        child: ListView(
-                          controller: scrollCtrl,
-                          padding: const EdgeInsets.fromLTRB(20, 10, 20, 10),
-                          children: [
-                            // Unallocated row
-                            _buildDistRow(
-                              theme: theme,
-                              cs: cs,
-                              isIncrease: _isIncrease,
-                              name: 'Unallocated',
-                              icon: Icons.account_balance_wallet_outlined,
-                              available: _currentUnallocated,
-                              ctrl: _unallocCtrl,
-                              error: _unallocError,
-                              disabled: _isDecrease &&
-                                  _currentUnallocated <= 0,
-                            ),
-                            // Budget rows
-                            ...widget.account.allocations.map((a) {
-                              final rawAlloc =
-                                  double.tryParse(a.amount) ?? 0;
-                              final disabled =
-                                  _isDecrease && rawAlloc <= 0;
-                              return _buildDistRow(
+                        child: NotificationListener<Notification>(
+                          onNotification: (n) {
+                            ScrollMetrics? metrics;
+                            if (n is ScrollNotification) {
+                              metrics = n.metrics;
+                            } else if (n is ScrollMetricsNotification) {
+                              metrics = n.metrics;
+                            }
+                            if (metrics != null) {
+                              final hasMore = metrics.pixels <
+                                  metrics.maxScrollExtent - 1.0;
+                              final hasAbove = metrics.pixels > 1.0;
+                              if (hasMore != _hasMoreBelow ||
+                                  hasAbove != _hasMoreAbove) {
+                                setState(() {
+                                  _hasMoreBelow = hasMore;
+                                  _hasMoreAbove = hasAbove;
+                                });
+                              }
+                            }
+                            return false;
+                          },
+                          child: ListView(
+                            controller: scrollCtrl,
+                            padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
+                            children: [
+                              // Unallocated row
+                              _buildDistRow(
                                 theme: theme,
                                 cs: cs,
                                 isIncrease: _isIncrease,
-                                name: a.budgetName,
-                                available: rawAlloc,
-                                ctrl: _distCtrls[a.budgetId]!,
-                                error: disabled
-                                    ? null
-                                    : _distError(a.budgetId),
-                                disabled: disabled,
-                              );
-                            }),
-                          ],
+                                name: 'Unallocated',
+                                icon: Icons.account_balance_wallet_outlined,
+                                available: _currentUnallocated,
+                                ctrl: _unallocCtrl,
+                                error: _unallocError,
+                                disabled: _isDecrease &&
+                                    _currentUnallocated <= 0,
+                              ),
+                              // Budget rows
+                              ...widget.account.allocations.map((a) {
+                                final rawAlloc =
+                                    double.tryParse(a.amount) ?? 0;
+                                final disabled =
+                                    _isDecrease && rawAlloc <= 0;
+                                return _buildDistRow(
+                                  theme: theme,
+                                  cs: cs,
+                                  isIncrease: _isIncrease,
+                                  name: a.budgetName,
+                                  available: rawAlloc,
+                                  ctrl: _distCtrls[a.budgetId]!,
+                                  error: disabled
+                                      ? null
+                                      : _distError(a.budgetId),
+                                  disabled: disabled,
+                                );
+                              }),
+                            ],
+                          ),
                         ),
                       ),
                       // Top fade
@@ -442,6 +470,44 @@ class _AccountBalanceAdjustSheetState
                                   cs.surfaceContainerHighest.withAlpha(120),
                                   cs.surfaceContainerHighest.withAlpha(0),
                                 ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      // Scroll-more-above chevron
+                      Positioned(
+                        top: 5,
+                        left: 0,
+                        right: 0,
+                        child: AnimatedOpacity(
+                          opacity: _hasMoreAbove ? 1.0 : 0.0,
+                          duration: const Duration(milliseconds: 200),
+                          child: Center(
+                            child: GestureDetector(
+                              onTap: () => scrollCtrl.animateTo(
+                                0,
+                                duration:
+                                    const Duration(milliseconds: 300),
+                                curve: Curves.easeOut,
+                              ),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 10, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: cs.surfaceContainerHighest
+                                      .withAlpha(220),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                      color:
+                                          cs.outlineVariant.withAlpha(100)),
+                                ),
+                                child: Icon(
+                                  Icons.keyboard_arrow_up_rounded,
+                                  size: 16,
+                                  color:
+                                      cs.onSurfaceVariant.withAlpha(180),
+                                ),
                               ),
                             ),
                           ),
@@ -465,6 +531,43 @@ class _AccountBalanceAdjustSheetState
                           ),
                         ),
                       ),
+                      // Scroll-more chevron
+                      Positioned(
+                        bottom: 5,
+                        left: 0,
+                        right: 0,
+                        child: AnimatedOpacity(
+                          opacity: _hasMoreBelow ? 1.0 : 0.0,
+                          duration: const Duration(milliseconds: 200),
+                          child: Center(
+                            child: GestureDetector(
+                              onTap: () => scrollCtrl.animateTo(
+                                scrollCtrl.position.maxScrollExtent,
+                                duration: const Duration(milliseconds: 300),
+                                curve: Curves.easeOut,
+                              ),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 10, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: cs.surfaceContainerHighest
+                                      .withAlpha(220),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                      color:
+                                          cs.outlineVariant.withAlpha(100)),
+                                ),
+                                child: Icon(
+                                  Icons.keyboard_arrow_down_rounded,
+                                  size: 16,
+                                  color:
+                                      cs.onSurfaceVariant.withAlpha(180),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -474,18 +577,18 @@ class _AccountBalanceAdjustSheetState
 
             // ── STICKY BOTTOM: remaining + CTA ───────────────────────────
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   if (!_isNoChange && _remaining.abs() > 0.015) ...[
                     _buildRemainingIndicator(theme, cs),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 6),
                   ],
                   FilledButton(
                     onPressed: (_canSubmit && !_saving) ? _submit : null,
                     style: FilledButton.styleFrom(
-                        minimumSize: const Size.fromHeight(52)),
+                        minimumSize: const Size.fromHeight(48)),
                     child: Text(_ctaLabel),
                   ),
                 ],
@@ -501,7 +604,7 @@ class _AccountBalanceAdjustSheetState
 
   Widget _buildBalanceCard(ThemeData theme, ColorScheme cs) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: cs.surfaceContainerLow,
         borderRadius: BorderRadius.circular(12),
@@ -510,7 +613,7 @@ class _AccountBalanceAdjustSheetState
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // Current balance
               Column(
@@ -520,7 +623,7 @@ class _AccountBalanceAdjustSheetState
                   Text('Current',
                       style: theme.textTheme.labelSmall
                           ?.copyWith(color: cs.onSurfaceVariant)),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 2),
                   Text(
                     '₹ ${widget.account.totalBalance}',
                     style: theme.textTheme.titleMedium
@@ -529,47 +632,83 @@ class _AccountBalanceAdjustSheetState
                 ],
               ),
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 14),
+                padding: const EdgeInsets.only(
+                    left: 14, right: 14, top: 14),
                 child: Icon(Icons.east_rounded,
                     size: 16, color: cs.outlineVariant),
               ),
-              // New balance input
+              // New balance input + delta indicator
               Expanded(
                 child: Column(
-                  mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     Text('Set New Balance',
                         style: theme.textTheme.labelSmall
                             ?.copyWith(color: cs.onSurfaceVariant)),
-                    const SizedBox(height: 4),
-                    TextField(
-                      controller: _balanceCtrl,
-                      autofocus: true,
-                      keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true, signed: true),
-                      inputFormatters: [
-                        FilteringTextInputFormatter.allow(
-                            RegExp(r'^-?\d*\.?\d{0,2}')),
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _balanceCtrl,
+                            keyboardType:
+                                const TextInputType.numberWithOptions(
+                                    decimal: true, signed: true),
+                            inputFormatters: [
+                              FilteringTextInputFormatter.allow(
+                                  RegExp(r'^-?\d*\.?\d{0,2}')),
+                            ],
+                            style: theme.textTheme.titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w700),
+                            decoration: InputDecoration(
+                              isDense: true,
+                              prefixText: '₹ ',
+                              hintText: '0',
+                              enabledBorder: _balanceError != null &&
+                                      _balanceCtrl.text.isNotEmpty
+                                  ? OutlineInputBorder(
+                                      borderSide: BorderSide(
+                                          color: cs.error, width: 1.5),
+                                      borderRadius:
+                                          BorderRadius.circular(8),
+                                    )
+                                  : null,
+                              contentPadding:
+                                  const EdgeInsets.symmetric(
+                                      horizontal: 10, vertical: 7),
+                            ),
+                          ),
+                        ),
+                        if (!_isNoChange) ...[
+                          const SizedBox(width: 10),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                _isIncrease
+                                    ? Icons.arrow_upward_rounded
+                                    : Icons.arrow_downward_rounded,
+                                size: 13,
+                                color: _isIncrease
+                                    ? AppColors.gain
+                                    : AppColors.loss,
+                              ),
+                              const SizedBox(width: 3),
+                              Text(
+                                '₹${compactAmount(_delta.abs())}',
+                                style:
+                                    theme.textTheme.bodySmall?.copyWith(
+                                  color: _isIncrease
+                                      ? AppColors.gain
+                                      : AppColors.loss,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                       ],
-                      style: theme.textTheme.titleMedium
-                          ?.copyWith(fontWeight: FontWeight.w700),
-                      decoration: InputDecoration(
-                        isDense: true,
-                        prefixText: '₹ ',
-                        hintText: '0',
-                        enabledBorder:
-                            _balanceError != null &&
-                                    _balanceCtrl.text.isNotEmpty
-                                ? OutlineInputBorder(
-                                    borderSide: BorderSide(
-                                        color: cs.error, width: 1.5),
-                                    borderRadius: BorderRadius.circular(8),
-                                  )
-                                : null,
-                        contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 8),
-                      ),
                     ),
                   ],
                 ),
@@ -577,7 +716,7 @@ class _AccountBalanceAdjustSheetState
             ],
           ),
           if (_balanceError != null && _balanceCtrl.text.isNotEmpty) ...[
-            const SizedBox(height: 6),
+            const SizedBox(height: 4),
             Align(
               alignment: Alignment.centerRight,
               child: Text(_balanceError!,
@@ -585,33 +724,8 @@ class _AccountBalanceAdjustSheetState
                       ?.copyWith(color: cs.error)),
             ),
           ],
-          if (!_isNoChange) ...[
-            const SizedBox(height: 16),
-            _buildDeltaBanner(theme, cs),
-          ],
         ],
       ),
-    );
-  }
-
-  Widget _buildDeltaBanner(ThemeData theme, ColorScheme cs) {
-    final color =
-        _isIncrease ? AppColors.gain : AppColors.loss;
-    final icon = _isIncrease
-        ? Icons.arrow_upward_rounded
-        : Icons.arrow_downward_rounded;
-    final label = _isIncrease ? 'balance increase' : 'balance decrease';
-    final amount = '₹${compactAmount(_delta.abs())}';
-
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Icon(icon, size: 14, color: color),
-        const SizedBox(width: 5),
-        Text('$label  $amount',
-            style: theme.textTheme.bodySmall
-                ?.copyWith(color: color, fontWeight: FontWeight.w700)),
-      ],
     );
   }
 
@@ -632,7 +746,7 @@ class _AccountBalanceAdjustSheetState
     return Opacity(
       opacity: disabled ? 0.45 : 1.0,
       child: Padding(
-        padding: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.only(bottom: 6),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -656,7 +770,7 @@ class _AccountBalanceAdjustSheetState
                       style: theme.textTheme.bodySmall
                           ?.copyWith(color: availColor)),
                 ),
-                SizedBox(
+                  SizedBox(
                   width: 110,
                   child: TextField(
                     enabled: !disabled,
@@ -674,7 +788,7 @@ class _AccountBalanceAdjustSheetState
                       hintText: '0',
                       prefixText: '₹ ',
                       contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 9),
+                          horizontal: 10, vertical: 7),
                       errorText: null,
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
@@ -720,7 +834,7 @@ class _AccountBalanceAdjustSheetState
         ? 'Over by ₹${compactAmount(rem.abs())} — reduce amounts'
         : _isIncrease
             ? '₹${compactAmount(rem)} still to distribute'
-            : 'Still need ₹${compactAmount(rem)} more from budgets';
+            : 'Still deduct ₹${compactAmount(rem)} more from budgets';
 
     return Row(
       mainAxisAlignment: MainAxisAlignment.end,
@@ -741,6 +855,11 @@ void showAccountBalanceAdjustSheet(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
-    builder: (_) => AccountBalanceAdjustSheet(account: account),
+    builder: (ctx) => AnimatedPadding(
+      duration: const Duration(milliseconds: 150),
+      curve: Curves.easeOut,
+      padding: MediaQuery.viewInsetsOf(ctx),
+      child: AccountBalanceAdjustSheet(account: account),
+    ),
   );
 }

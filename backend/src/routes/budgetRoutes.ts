@@ -35,6 +35,20 @@ budgetRouter.patch(
   )
 );
 
+budgetRouter.get(
+  "/:id/snapshots",
+  asyncHandler((req, res) =>
+    budgetController.listSnapshots(req as AuthedRequest, res)
+  )
+);
+
+budgetRouter.post(
+  "/:id/reset",
+  asyncHandler((req, res) =>
+    budgetController.resetBudget(req as AuthedRequest, res)
+  )
+);
+
 budgetRouter.post(
   "/:id/categories",
   asyncHandler((req, res) =>

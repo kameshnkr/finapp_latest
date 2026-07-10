@@ -35,6 +35,8 @@ class _BudgetReallocationSheetState extends State<BudgetReallocationSheet> {
   late final TextEditingController _unallocDeductCtrl;
   final Map<String, TextEditingController> _deductCtrls = {};
   bool _saving = false;
+  bool _hasMoreBelow = false;
+  bool _hasMoreAbove = false;
   // Tracks whether the user has manually typed in the unallocated field.
   // Auto-fill only runs when this is false, so it always reflects the full
   // delta rather than freezing on the first character typed in the target.
@@ -157,10 +159,10 @@ class _BudgetReallocationSheetState extends State<BudgetReallocationSheet> {
     super.initState();
 
     _targetCtrl = TextEditingController(text: _formatAmt(_currentAlloc));
-    _unallocDeductCtrl = TextEditingController(text: '0');
+    _unallocDeductCtrl = TextEditingController(text: '');
 
     for (final a in _sourceAllocs) {
-      _deductCtrls[a.budgetId] = TextEditingController(text: '0')
+      _deductCtrls[a.budgetId] = TextEditingController(text: '')
         ..addListener(_onSourceChanged);
     }
 
@@ -188,15 +190,15 @@ class _BudgetReallocationSheetState extends State<BudgetReallocationSheet> {
       final autoFill =
           (_currentUnallocated > 0.005 ? min(_currentUnallocated, _delta) : 0.0)
               .clamp(0.0, _delta);
-      _setUnallocSilently(_formatAmt(autoFill));
+      _setUnallocSilently(_ctrlValue(autoFill));
     } else if (_isDecrease && !_unallocUserEdited) {
       // Auto-fill unallocated with all freed funds (user can redistribute).
-      _setUnallocSilently(_formatAmt(_delta.abs()));
+      _setUnallocSilently(_ctrlValue(_delta.abs()));
     } else if (_isNoChange) {
       _unallocUserEdited = false;
-      _setUnallocSilently('0');
+      _setUnallocSilently('');
       for (final c in _deductCtrls.values) {
-        _setSourceSilently(c, '0');
+        _setSourceSilently(c, '');
       }
     }
     setState(() {});
@@ -235,9 +237,9 @@ class _BudgetReallocationSheetState extends State<BudgetReallocationSheet> {
 
   void _reset() {
     _unallocUserEdited = false;
-    _setUnallocSilently('0');
+    _setUnallocSilently('');
     for (final c in _deductCtrls.values) {
-      _setSourceSilently(c, '0');
+      _setSourceSilently(c, '');
     }
     // Restore target to the original current allocation
     final initial = _formatAmt(_currentAlloc);
@@ -293,6 +295,9 @@ class _BudgetReallocationSheetState extends State<BudgetReallocationSheet> {
     return v.toStringAsFixed(2);
   }
 
+  /// Returns empty string for zero so fields show the hint placeholder.
+  String _ctrlValue(double v) => v.abs() < 0.005 ? '' : _formatAmt(v);
+
   String get _ctaLabel {
     if (_isNoChange) return 'No Change';
     if (_isIncrease) return 'Allocate ₹${compactAmount(_delta)}';
@@ -319,7 +324,7 @@ class _BudgetReallocationSheetState extends State<BudgetReallocationSheet> {
       expand: false,
       initialChildSize: 0.85,
       minChildSize: 0.5,
-      maxChildSize: 0.95,
+      maxChildSize: 1.0,
       builder: (context, scrollCtrl) {
         return Column(
           children: [
@@ -373,13 +378,13 @@ class _BudgetReallocationSheetState extends State<BudgetReallocationSheet> {
 
             // ── STICKY TOP: target card + section label ───────────────────
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   _buildTargetCard(theme, cs),
                   if (!_isNoChange) ...[
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 8),
                     Text(
                       _isIncrease ? 'DEDUCT FROM' : 'DISTRIBUTE TO',
                       style: theme.textTheme.labelSmall?.copyWith(
@@ -388,7 +393,7 @@ class _BudgetReallocationSheetState extends State<BudgetReallocationSheet> {
                         letterSpacing: 1.0,
                       ),
                     ),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 4),
                     Row(
                       children: [
                         const Spacer(),
@@ -409,7 +414,7 @@ class _BudgetReallocationSheetState extends State<BudgetReallocationSheet> {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 2),
                   ],
                 ],
               ),
@@ -431,38 +436,65 @@ class _BudgetReallocationSheetState extends State<BudgetReallocationSheet> {
                       Scrollbar(
                         controller: scrollCtrl,
                         thumbVisibility: true,
-                        child: ListView(
-                          controller: scrollCtrl,
-                          padding: const EdgeInsets.fromLTRB(20, 10, 20, 10),
-                          children: [
-                            _buildSourceRow(
-                              theme: theme,
-                              cs: cs,
-                              isIncrease: _isIncrease,
-                              name: 'Unallocated',
-                              icon: Icons.account_balance_wallet_outlined,
-                              available: _currentUnallocated,
-                              ctrl: _unallocDeductCtrl,
-                              error: _unallocError,
-                              // Increase: disable if nothing to deduct.
-                              // Decrease: always enabled (can receive freed funds).
-                              disabled: _isIncrease && _currentUnallocated <= 0,
-                            ),
-                            ..._sourceAllocs.map((a) {
-                              final rawAlloc = double.tryParse(a.amount) ?? 0;
-                              final disabled = _isIncrease && rawAlloc <= 0;
-                              return _buildSourceRow(
+                        child: NotificationListener<Notification>(
+                          onNotification: (n) {
+                            ScrollMetrics? metrics;
+                            if (n is ScrollNotification) {
+                              metrics = n.metrics;
+                            } else if (n is ScrollMetricsNotification) {
+                              metrics = n.metrics;
+                            }
+                            if (metrics != null) {
+                              final hasMore = metrics.pixels <
+                                  metrics.maxScrollExtent - 1.0;
+                              final hasAbove = metrics.pixels > 1.0;
+                              if (hasMore != _hasMoreBelow ||
+                                  hasAbove != _hasMoreAbove) {
+                                setState(() {
+                                  _hasMoreBelow = hasMore;
+                                  _hasMoreAbove = hasAbove;
+                                });
+                              }
+                            }
+                            return false;
+                          },
+                          child: ListView(
+                            controller: scrollCtrl,
+                            padding:
+                                const EdgeInsets.fromLTRB(20, 8, 20, 8),
+                            children: [
+                              _buildSourceRow(
                                 theme: theme,
                                 cs: cs,
                                 isIncrease: _isIncrease,
-                                name: a.budgetName,
-                                available: rawAlloc,
-                                ctrl: _deductCtrls[a.budgetId]!,
-                                error: disabled ? null : _sourceError(a.budgetId),
-                                disabled: disabled,
-                              );
-                            }),
-                          ],
+                                name: 'Unallocated',
+                                icon: Icons.account_balance_wallet_outlined,
+                                available: _currentUnallocated,
+                                ctrl: _unallocDeductCtrl,
+                                error: _unallocError,
+                                disabled: _isIncrease &&
+                                    _currentUnallocated <= 0,
+                              ),
+                              ..._sourceAllocs.map((a) {
+                                final rawAlloc =
+                                    double.tryParse(a.amount) ?? 0;
+                                final disabled =
+                                    _isIncrease && rawAlloc <= 0;
+                                return _buildSourceRow(
+                                  theme: theme,
+                                  cs: cs,
+                                  isIncrease: _isIncrease,
+                                  name: a.budgetName,
+                                  available: rawAlloc,
+                                  ctrl: _deductCtrls[a.budgetId]!,
+                                  error: disabled
+                                      ? null
+                                      : _sourceError(a.budgetId),
+                                  disabled: disabled,
+                                );
+                              }),
+                            ],
+                          ),
                         ),
                       ),
                       // Top fade
@@ -478,6 +510,44 @@ class _BudgetReallocationSheetState extends State<BudgetReallocationSheet> {
                                   cs.surfaceContainerHighest.withAlpha(120),
                                   cs.surfaceContainerHighest.withAlpha(0),
                                 ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      // Scroll-more-above chevron
+                      Positioned(
+                        top: 5,
+                        left: 0,
+                        right: 0,
+                        child: AnimatedOpacity(
+                          opacity: _hasMoreAbove ? 1.0 : 0.0,
+                          duration: const Duration(milliseconds: 200),
+                          child: Center(
+                            child: GestureDetector(
+                              onTap: () => scrollCtrl.animateTo(
+                                0,
+                                duration:
+                                    const Duration(milliseconds: 300),
+                                curve: Curves.easeOut,
+                              ),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 10, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: cs.surfaceContainerHighest
+                                      .withAlpha(220),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                      color: cs.outlineVariant
+                                          .withAlpha(100)),
+                                ),
+                                child: Icon(
+                                  Icons.keyboard_arrow_up_rounded,
+                                  size: 16,
+                                  color:
+                                      cs.onSurfaceVariant.withAlpha(180),
+                                ),
                               ),
                             ),
                           ),
@@ -501,6 +571,44 @@ class _BudgetReallocationSheetState extends State<BudgetReallocationSheet> {
                           ),
                         ),
                       ),
+                      // Scroll-more chevron
+                      Positioned(
+                        bottom: 5,
+                        left: 0,
+                        right: 0,
+                        child: AnimatedOpacity(
+                          opacity: _hasMoreBelow ? 1.0 : 0.0,
+                          duration: const Duration(milliseconds: 200),
+                          child: Center(
+                            child: GestureDetector(
+                              onTap: () => scrollCtrl.animateTo(
+                                scrollCtrl.position.maxScrollExtent,
+                                duration:
+                                    const Duration(milliseconds: 300),
+                                curve: Curves.easeOut,
+                              ),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 10, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: cs.surfaceContainerHighest
+                                      .withAlpha(220),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                      color: cs.outlineVariant
+                                          .withAlpha(100)),
+                                ),
+                                child: Icon(
+                                  Icons.keyboard_arrow_down_rounded,
+                                  size: 16,
+                                  color:
+                                      cs.onSurfaceVariant.withAlpha(180),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -510,18 +618,18 @@ class _BudgetReallocationSheetState extends State<BudgetReallocationSheet> {
 
             // ── STICKY BOTTOM: remaining indicator + CTA ─────────────────
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   if (!_isNoChange && _remaining.abs() > 0.015) ...[
                     _buildRemainingIndicator(theme, cs),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 6),
                   ],
                   FilledButton(
                     onPressed: (_canSubmit && !_saving) ? _submit : null,
                     style: FilledButton.styleFrom(
-                      minimumSize: const Size.fromHeight(52),
+                      minimumSize: const Size.fromHeight(48),
                     ),
                     child: Text(_ctaLabel),
                   ),
@@ -536,23 +644,31 @@ class _BudgetReallocationSheetState extends State<BudgetReallocationSheet> {
 
   // ── Section builders ──────────────────────────────────────────────────────
 
-  /// Target card: current value → target input, with the delta banner
-  /// embedded inside (below a divider) so the relationship is obvious.
+  /// Target card: current value → target input with inline delta indicator.
   Widget _buildTargetCard(ThemeData theme, ColorScheme cs) {
+    final deltaColor = _isIncrease ? AppColors.gain : AppColors.loss;
+    final deltaIcon = _isIncrease
+        ? Icons.arrow_upward_rounded
+        : Icons.arrow_downward_rounded;
+    final subLabel = !_isNoChange &&
+            _isIncrease &&
+            _currentAlloc < -0.005
+        ? 'covers ₹${compactAmount(_currentAlloc.abs())} deficit  +  ₹${compactAmount(_parsedTarget)} new allocation'
+        : null;
+
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: cs.surfaceContainerLow,
         borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Current → Target (error shown below the Row to keep heights equal)
           Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Current
+              // Current allocation
               Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -560,7 +676,7 @@ class _BudgetReallocationSheetState extends State<BudgetReallocationSheet> {
                   Text('Current',
                       style: theme.textTheme.labelSmall
                           ?.copyWith(color: cs.onSurfaceVariant)),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 2),
                   Text(
                     '₹ ${_targetAlloc.amount}',
                     style: theme.textTheme.titleMedium?.copyWith(
@@ -572,122 +688,108 @@ class _BudgetReallocationSheetState extends State<BudgetReallocationSheet> {
                   ),
                 ],
               ),
-              // Arrow
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 14),
+                padding: const EdgeInsets.only(
+                    left: 14, right: 14, top: 14),
                 child: Icon(Icons.east_rounded,
                     size: 16, color: cs.outlineVariant),
               ),
-              // Target input — no errorText so height stays constant
+              // Set Target + inline delta
               Expanded(
                 child: Column(
-                  mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     Text('Set Target',
                         style: theme.textTheme.labelSmall
                             ?.copyWith(color: cs.onSurfaceVariant)),
-                    const SizedBox(height: 4),
-                    TextField(
-                      controller: _targetCtrl,
-                      autofocus: true,
-                      keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true, signed: false),
-                      inputFormatters: [
-                        FilteringTextInputFormatter.allow(
-                            RegExp(r'^\d*\.?\d{0,2}')),
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _targetCtrl,
+                            keyboardType:
+                                const TextInputType.numberWithOptions(
+                                    decimal: true, signed: false),
+                            inputFormatters: [
+                              FilteringTextInputFormatter.allow(
+                                  RegExp(r'^\d*\.?\d{0,2}')),
+                            ],
+                            style: theme.textTheme.titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w700),
+                            decoration: InputDecoration(
+                              isDense: true,
+                              prefixText: '₹ ',
+                              hintText: '0',
+                              enabledBorder: _targetError != null &&
+                                      _targetCtrl.text.isNotEmpty
+                                  ? OutlineInputBorder(
+                                      borderSide: BorderSide(
+                                          color: cs.error, width: 1.5),
+                                      borderRadius:
+                                          BorderRadius.circular(8),
+                                    )
+                                  : null,
+                              focusedBorder: _targetError != null &&
+                                      _targetCtrl.text.isNotEmpty
+                                  ? OutlineInputBorder(
+                                      borderSide: BorderSide(
+                                          color: cs.error, width: 2),
+                                      borderRadius:
+                                          BorderRadius.circular(8),
+                                    )
+                                  : null,
+                              contentPadding:
+                                  const EdgeInsets.symmetric(
+                                      horizontal: 10, vertical: 7),
+                            ),
+                          ),
+                        ),
+                        if (!_isNoChange) ...[
+                          const SizedBox(width: 10),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(deltaIcon,
+                                  size: 13, color: deltaColor),
+                              const SizedBox(width: 3),
+                              Text(
+                                '₹${compactAmount(_delta.abs())}',
+                                style:
+                                    theme.textTheme.bodySmall?.copyWith(
+                                  color: deltaColor,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                       ],
-                      style: theme.textTheme.titleMedium
-                          ?.copyWith(fontWeight: FontWeight.w700),
-                      decoration: InputDecoration(
-                        isDense: true,
-                        prefixText: '₹ ',
-                        hintText: '0',
-                        // error border tint only — no errorText here
-                        enabledBorder: _targetError != null &&
-                                _targetCtrl.text.isNotEmpty
-                            ? OutlineInputBorder(
-                                borderSide:
-                                    BorderSide(color: cs.error, width: 1.5),
-                                borderRadius: BorderRadius.circular(8),
-                              )
-                            : null,
-                        focusedBorder: _targetError != null &&
-                                _targetCtrl.text.isNotEmpty
-                            ? OutlineInputBorder(
-                                borderSide:
-                                    BorderSide(color: cs.error, width: 2),
-                                borderRadius: BorderRadius.circular(8),
-                              )
-                            : null,
-                        contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 8),
-                      ),
                     ),
+                    if (_targetError != null &&
+                        _targetCtrl.text.isNotEmpty) ...[
+                      const SizedBox(height: 3),
+                      Text(_targetError!,
+                          style: theme.textTheme.labelSmall
+                              ?.copyWith(color: cs.error)),
+                    ],
                   ],
                 ),
               ),
             ],
           ),
-
-          // Error shown outside the Row so it never affects row height
-          if (_targetError != null && _targetCtrl.text.isNotEmpty) ...[
+          if (subLabel != null) ...[
             const SizedBox(height: 6),
-            Align(
-              alignment: Alignment.centerRight,
-              child: Text(
-                _targetError!,
-                style: theme.textTheme.labelSmall
-                    ?.copyWith(color: cs.error),
-              ),
+            Text(
+              subLabel,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.labelSmall
+                  ?.copyWith(color: deltaColor.withAlpha(170)),
             ),
-          ],
-
-          // Delta banner — only when something changed
-          if (!_isNoChange) ...[
-            const SizedBox(height: 16),
-            _buildDeltaBanner(theme, cs),
           ],
         ],
       ),
-    );
-  }
-
-  Widget _buildDeltaBanner(ThemeData theme, ColorScheme cs) {
-    final isInc = _isIncrease;
-    final color = isInc ? AppColors.gain : AppColors.loss;
-    final icon = isInc ? Icons.arrow_upward_rounded : Icons.arrow_downward_rounded;
-    final label = isInc
-        ? 'required to add'
-        : 'will be freed';
-    final amount = isInc
-        ? '₹${compactAmount(_delta)}'
-        : '₹${compactAmount(_delta.abs())}';
-    final subLabel = isInc && _currentAlloc < -0.005
-        ? 'covers ₹${compactAmount(_currentAlloc.abs())} deficit  +  ₹${compactAmount(_parsedTarget)} new allocation'
-        : null;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 14, color: color),
-            const SizedBox(width: 5),
-            Text('$label  $amount',
-                style: theme.textTheme.bodySmall
-                    ?.copyWith(color: color, fontWeight: FontWeight.w700)),
-          ],
-        ),
-        if (subLabel != null) ...[
-          const SizedBox(height: 3),
-          Text(subLabel,
-              textAlign: TextAlign.center,
-              style: theme.textTheme.labelSmall
-                  ?.copyWith(color: color.withAlpha(170))),
-        ],
-      ],
     );
   }
 
@@ -709,7 +811,7 @@ class _BudgetReallocationSheetState extends State<BudgetReallocationSheet> {
     return Opacity(
       opacity: disabled ? 0.45 : 1.0,
       child: Padding(
-        padding: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.only(bottom: 6),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -739,7 +841,7 @@ class _BudgetReallocationSheetState extends State<BudgetReallocationSheet> {
                   ),
                 ),
                 // Deduct/Add field — disabled (greyed) when balance <= 0
-                SizedBox(
+                  SizedBox(
                   width: 110,
                   child: TextField(
                           enabled: !disabled,
@@ -757,7 +859,7 @@ class _BudgetReallocationSheetState extends State<BudgetReallocationSheet> {
                             hintText: '0',
                             prefixText: '₹ ',
                             contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 10, vertical: 9),
+                                horizontal: 10, vertical: 7),
                             errorText: null,
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(8),

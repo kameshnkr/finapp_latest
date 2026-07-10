@@ -172,6 +172,18 @@ class FinappApi {
     );
   }
 
+  Future<void> resetBudget(String budgetId) async {
+    await _client.postEmpty('/api/budgets/$budgetId/reset');
+  }
+
+  Future<List<BudgetSnapshotDto>> fetchBudgetSnapshots(String budgetId) async {
+    final data = await _client.getJson('/api/budgets/$budgetId/snapshots');
+    final list = data['snapshots'] as List<dynamic>;
+    return list
+        .map((e) => BudgetSnapshotDto.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
   /// Guided reallocation: move funds to/from [targetBudgetId] in one transaction.
   ///
   /// [unallocatedDeductAmount] is how much to pull from the implicit unallocated

@@ -12,6 +12,39 @@ export interface SnapshotInput {
   periodEnd: Date | null;
 }
 
+export interface SnapshotRow {
+  id: string;
+  estimated: string;
+  spent: string;
+  funds_available: string;
+  period_start: Date | null;
+  period_end: Date | null;
+  created_at: Date;
+}
+
+export async function listSnapshots(
+  db: Db,
+  userId: bigint,
+  budgetId: bigint
+): Promise<SnapshotRow[]> {
+  const r = await db.query<SnapshotRow>(
+    `SELECT s.id,
+            s.estimated::text,
+            s.spent::text,
+            s.funds_available::text,
+            s.period_start,
+            s.period_end,
+            s.created_at
+     FROM budget_snapshots s
+     JOIN budgets b ON b.id = s.budget_id
+     WHERE s.budget_id = $1
+       AND b.user_id   = $2
+     ORDER BY s.created_at DESC`,
+    [budgetId, userId]
+  );
+  return r.rows;
+}
+
 export async function insertBudgetSnapshot(db: Db, input: SnapshotInput): Promise<void> {
   await db.query(
     `INSERT INTO budget_snapshots
