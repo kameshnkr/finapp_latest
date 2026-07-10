@@ -1178,8 +1178,8 @@ class _CategoryEstimateCardState extends State<_CategoryEstimateCard> {
 
   Future<void> _save() async {
     final nameVal = _name.text.trim();
-    final est     = _estimated.text.trim();
-    if (nameVal.isEmpty || est.isEmpty) return;
+    if (nameVal.isEmpty) return;
+    final est = _estimated.text.trim().isEmpty ? '0' : _estimated.text.trim();
     setState(() => _saving = true);
     final app = context.read<AppController>();
     try {
