@@ -61,6 +61,7 @@ class CategoryDto {
     required this.estimated,
     required this.spent,
     required this.remaining,
+    required this.categoryType,
     required this.version,
   });
 
@@ -69,6 +70,8 @@ class CategoryDto {
   final String estimated;
   final String spent;
   final String remaining;
+  /// 'fixed' | 'variable'
+  final String categoryType;
   final int version;
 
   factory CategoryDto.fromJson(Map<String, dynamic> j) => CategoryDto(
@@ -77,6 +80,7 @@ class CategoryDto {
         estimated: j['estimated'] as String,
         spent: j['spent'] as String,
         remaining: j['remaining'] as String,
+        categoryType: j['categoryType'] as String? ?? 'variable',
         version: j['version'] as int,
       );
 }

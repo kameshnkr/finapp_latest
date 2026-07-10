@@ -154,12 +154,14 @@ class FinappApi {
     String? categoryId,
     required String name,
     required String estimated,
+    String categoryType = 'variable',
     int? version,
   }) async {
     final j = await _client.postJson('/api/budgets/$budgetId/categories', body: {
       if (categoryId != null) 'id': categoryId,
       'name': name,
       'estimated': estimated,
+      'categoryType': categoryType,
       if (version != null) 'version': version,
     }) as Map<String, dynamic>;
     final list = j['budgets'] as List<dynamic>? ?? [];

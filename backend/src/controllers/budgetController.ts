@@ -44,6 +44,7 @@ const categoryUpsertSchema = z.object({
   name: z.string().min(1),
   estimated: z.string().regex(/^\d+(\.\d{1,2})?$/),
   version: z.number().int().positive().optional(),
+  categoryType: z.enum(["fixed", "variable"]).default("variable"),
 });
 
 const createBudgetSchema = z
@@ -92,6 +93,7 @@ export async function upsertCategory(req: AuthedRequest, res: Response): Promise
     name: body.name,
     estimated: body.estimated,
     version: body.version,
+    categoryType: body.categoryType,
   });
   const data = await budgetService.listBudgetsWithCategories(req.userId);
   res.json({ budgets: data });
