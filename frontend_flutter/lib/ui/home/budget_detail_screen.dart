@@ -720,21 +720,21 @@ class _BudgetSummaryCardState extends State<_BudgetSummaryCard> {
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                              Text(
-                                'Breakdown',
-                                style: theme.textTheme.labelSmall?.copyWith(
-                                  color: cs.primary,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              const SizedBox(width: 2),
-                              Icon(
-                                _expanded
-                                    ? Icons.keyboard_arrow_up_rounded
-                                    : Icons.keyboard_arrow_down_rounded,
-                                size: 14,
-                                color: cs.primary,
-                              ),
+                                  Text(
+                                    'Breakdown',
+                                    style: theme.textTheme.labelSmall?.copyWith(
+                                      color: cs.primary,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 2),
+                                  Icon(
+                                    _expanded
+                                        ? Icons.keyboard_arrow_up_rounded
+                                        : Icons.keyboard_arrow_down_rounded,
+                                    size: 14,
+                                    color: cs.primary,
+                                  ),
                                 ],
                               ),
                             ),
@@ -1134,8 +1134,9 @@ class _CategoryEstimateCard extends StatefulWidget {
 }
 
 class _CategoryEstimateCardState extends State<_CategoryEstimateCard> {
-  bool _editing = false;
-  bool _saving  = false;
+  bool _editing  = false;
+  bool _saving   = false;
+  bool _deleting = false;
   late final TextEditingController _name;
   late final TextEditingController _estimated;
   late String _categoryType;
@@ -1202,13 +1203,36 @@ class _CategoryEstimateCardState extends State<_CategoryEstimateCard> {
   }
 
   Future<void> _delete() async {
+    final cs = Theme.of(context).colorScheme;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete category?'),
+        content: Text(
+          'Delete "${widget.category.name}"? This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: cs.error),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    setState(() => _deleting = true);
     final app = context.read<AppController>();
-    final c   = widget.category;
     try {
-      await app.api.deleteCategory(widget.budgetId, c.id);
+      await app.api.deleteCategory(widget.budgetId, widget.category.id);
       await app.refreshAccountsBudgets();
     } catch (e) {
       if (!mounted) return;
+      setState(() => _deleting = false);
       showTopSnack(context, 'Error: $e');
     }
   }
@@ -1225,11 +1249,18 @@ class _CategoryEstimateCardState extends State<_CategoryEstimateCard> {
     final remainingColor = remaining < 0 ? Colors.red.shade700 : cs.onSurface;
 
     return Card(
-      child: Padding(
-        padding: AppInsets.card,
-        child: _editing
-            ? _buildEditMode(theme)
-            : _buildReadMode(theme, cs, c, estimated, spent, remaining, remainingColor),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (_deleting)
+            LinearProgressIndicator(minHeight: 3, color: cs.error),
+          Padding(
+            padding: AppInsets.card,
+            child: _editing
+                ? _buildEditMode(theme)
+                : _buildReadMode(theme, cs, c, estimated, spent, remaining, remainingColor),
+          ),
+        ],
       ),
     );
   }
@@ -1250,15 +1281,16 @@ class _CategoryEstimateCardState extends State<_CategoryEstimateCard> {
     final barColor  = overSpent ? cs.error : cs.primary;
 
     final isFixed = c.categoryType == 'fixed';
-    final badgeBg = isFixed
-        ? cs.primaryContainer.withAlpha(180)
-        : cs.surfaceContainerHighest;
+    final badgeBg = isFixed ? cs.primaryContainer.withAlpha(180) : Colors.transparent;
     final badgeFg = isFixed ? cs.onPrimaryContainer : cs.onSurfaceVariant;
+    final badgeBorder = isFixed
+        ? BorderSide.none
+        : BorderSide(color: cs.outlineVariant, width: 0.8);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Name + type badge + action icons
+        // Name on the left, type badge right-aligned before action icons
         Row(
           children: [
             Expanded(
@@ -1269,12 +1301,12 @@ class _CategoryEstimateCardState extends State<_CategoryEstimateCard> {
                 overflow: TextOverflow.ellipsis,
               ),
             ),
-            const SizedBox(width: 6),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
               decoration: BoxDecoration(
                 color: badgeBg,
                 borderRadius: BorderRadius.circular(20),
+                border: Border.fromBorderSide(badgeBorder),
               ),
               child: Text(
                 isFixed ? 'Fixed' : 'Variable',
@@ -1285,7 +1317,7 @@ class _CategoryEstimateCardState extends State<_CategoryEstimateCard> {
                 ),
               ),
             ),
-            const SizedBox(width: 6),
+            const SizedBox(width: 12),
             IconButton(
               icon: const Icon(Icons.edit_outlined, size: 17),
               tooltip: 'Edit',
@@ -1293,83 +1325,59 @@ class _CategoryEstimateCardState extends State<_CategoryEstimateCard> {
               constraints: const BoxConstraints(),
               style: IconButton.styleFrom(
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap),
-              onPressed: () => setState(() => _editing = true),
+              onPressed: _deleting ? null : () => setState(() => _editing = true),
             ),
             const SizedBox(width: 8),
             IconButton(
-              icon: Icon(Icons.delete_outline, size: 17, color: cs.error),
+              icon: Icon(Icons.delete_outline, size: 17, color: _deleting ? cs.onSurface.withAlpha(80) : cs.error),
               tooltip: 'Delete',
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints(),
               style: IconButton.styleFrom(
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap),
-              onPressed: _delete,
+              onPressed: _deleting ? null : _delete,
             ),
           ],
         ),
         const SizedBox(height: 8),
-        // Stats row
+        // Stats row — fixed-width chips keep bar at a consistent position
         Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            _StatChip(
-              label: 'Planned',
-              value: compactAmount(estimated),
-              color: cs.primary,
+            SizedBox(
+              width: 66,
+              child: _StatChip(
+                label: 'Estimated',
+                value: compactAmount(estimated),
+                color: cs.primary,
+              ),
             ),
-            const SizedBox(width: 24),
-            // Spent stat with inline % pill
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Spent',
-                    style: theme.textTheme.labelSmall
-                        ?.copyWith(color: cs.onSurfaceVariant)),
-                const SizedBox(height: 2),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Text(
-                      compactAmount(spent),
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: spent > 0
-                            ? Colors.orange.shade700
-                            : cs.onSurfaceVariant,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    if (estimated > 0 && pct > 0) ...[
-                      const SizedBox(width: 5),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 5, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: overSpent
-                              ? cs.errorContainer
-                              : cs.primaryContainer.withAlpha(180),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Text(
-                          '${((spent / estimated * 100).round()).clamp(0, 100)}%',
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: overSpent
-                                ? cs.onErrorContainer
-                                : cs.primary,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 10,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ],
+            const SizedBox(width: 16),
+            SizedBox(
+              width: 66,
+              child: _StatChip(
+                label: 'Spent',
+                value: compactAmount(spent),
+                color: spent > 0 ? Colors.orange.shade700 : cs.onSurfaceVariant,
+              ),
             ),
-            const SizedBox(width: 24),
-            _StatChip(
-              label: 'Remaining',
-              value: compactAmount(remaining),
-              color: remainingColor,
+            const SizedBox(width: 16),
+            SizedBox(
+              width: 66,
+              child: _StatChip(
+                label: 'Remaining',
+                value: compactAmount(remaining),
+                color: remainingColor,
+              ),
+            ),
+            const SizedBox(width: 14),
+            _VerticalBar(
+              pct: pct,
+              hasPlanned: estimated > 0,
+              overBudget: overSpent,
+              barColor: Colors.orange.shade200,
+              barWidth: 7,
+              barHeight: 36,
             ),
           ],
         ),
@@ -1405,7 +1413,7 @@ class _CategoryEstimateCardState extends State<_CategoryEstimateCard> {
             FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}')),
           ],
           decoration: const InputDecoration(
-            labelText: 'Estimated (planned)',
+            labelText: 'Estimated',
             isDense: true,
           ),
         ),
@@ -1843,12 +1851,16 @@ class _VerticalBar extends StatelessWidget {
     required this.hasPlanned,
     required this.overBudget,
     required this.barColor,
+    this.barWidth = 10,
+    this.barHeight = 44,
   });
 
   final double pct;
   final bool hasPlanned;
   final bool overBudget;
   final Color barColor;
+  final double barWidth;
+  final double barHeight;
 
   @override
   Widget build(BuildContext context) {
@@ -1862,8 +1874,8 @@ class _VerticalBar extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         SizedBox(
-          width: 10,
-          height: 44,
+          width: barWidth,
+          height: barHeight,
           child: ClipRRect(
             borderRadius: BorderRadius.circular(5),
             child: Stack(
