@@ -710,29 +710,27 @@ class _BudgetSummaryCardState extends State<_BudgetSummaryCard> {
                       ),
                       if (hasCategories) ...[
                         const SizedBox(height: 6),
-                        Center(
-                          child: GestureDetector(
-                            onTap: () => setState(() => _expanded = !_expanded),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  'Breakdown',
-                                  style: theme.textTheme.labelSmall?.copyWith(
-                                    color: cs.primary,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                const SizedBox(width: 2),
-                                Icon(
-                                  _expanded
-                                      ? Icons.keyboard_arrow_up_rounded
-                                      : Icons.keyboard_arrow_down_rounded,
-                                  size: 14,
+                        GestureDetector(
+                          onTap: () => setState(() => _expanded = !_expanded),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                'Breakdown',
+                                style: theme.textTheme.labelSmall?.copyWith(
                                   color: cs.primary,
+                                  fontWeight: FontWeight.w600,
                                 ),
-                              ],
-                            ),
+                              ),
+                              const SizedBox(width: 2),
+                              Icon(
+                                _expanded
+                                    ? Icons.keyboard_arrow_up_rounded
+                                    : Icons.keyboard_arrow_down_rounded,
+                                size: 14,
+                                color: cs.primary,
+                              ),
+                            ],
                           ),
                         ),
                       ],
