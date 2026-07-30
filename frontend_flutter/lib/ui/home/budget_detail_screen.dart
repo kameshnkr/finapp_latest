@@ -813,13 +813,17 @@ class _BreakdownSection extends StatelessWidget {
       return Text(compactAmount(v), style: valStyle?.copyWith(color: color));
     }
 
-    // Fixed column widths — keeps the table within the left portion of the
-    // card and away from the Funds Available section on the right.
-    const double typeW  = 72;
-    const double valueW = 76;
+    // Rows = Estimated / Spent  ·  Columns = Fixed / Variable
+    // Mirrors the main card's "Estimated … Spent …" row presentation.
+    const double labelW = 72;
+    const double valueW = 60;
 
-    Widget cell(String text, {TextStyle? style, TextAlign align = TextAlign.right}) =>
-        Text(text, style: style, textAlign: align);
+    Widget val(double v, {bool isSpent = false}) {
+      final color = isSpent
+          ? (v > 0 ? AppColors.loss : muted)
+          : AppColors.number;
+      return Text(compactAmount(v), style: valStyle?.copyWith(color: color));
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -827,36 +831,36 @@ class _BreakdownSection extends StatelessWidget {
         const SizedBox(height: 10),
         Container(height: 0.5, color: cs.outlineVariant.withAlpha(100)),
         const SizedBox(height: 10),
-        // Header row
+        // Header row:  [blank]  Fixed  Variable
         Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            SizedBox(width: typeW),
-            SizedBox(width: valueW, child: cell('Estimated', style: labelStyle, align: TextAlign.right)),
-            const SizedBox(width: 16),
-            SizedBox(width: valueW, child: cell('Spent', style: labelStyle, align: TextAlign.right)),
+            SizedBox(width: labelW),
+            SizedBox(width: valueW, child: Text('Fixed',    style: typeStyle)),
+            const SizedBox(width: 14),
+            SizedBox(width: valueW, child: Text('Variable', style: typeStyle)),
           ],
         ),
         const SizedBox(height: 7),
-        // Fixed row
+        // Estimated row
         Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            SizedBox(width: typeW, child: Text('Fixed', style: typeStyle)),
-            SizedBox(width: valueW, child: Align(alignment: Alignment.centerRight, child: valueText(fixedEst))),
-            const SizedBox(width: 16),
-            SizedBox(width: valueW, child: Align(alignment: Alignment.centerRight, child: valueText(fixedSp, isSpent: true))),
+            SizedBox(width: labelW, child: Text('Estimated', style: labelStyle)),
+            SizedBox(width: valueW, child: val(fixedEst)),
+            const SizedBox(width: 14),
+            SizedBox(width: valueW, child: val(varEst)),
           ],
         ),
         const SizedBox(height: 5),
-        // Variable row
+        // Spent row
         Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            SizedBox(width: typeW, child: Text('Variable', style: typeStyle)),
-            SizedBox(width: valueW, child: Align(alignment: Alignment.centerRight, child: valueText(varEst))),
-            const SizedBox(width: 16),
-            SizedBox(width: valueW, child: Align(alignment: Alignment.centerRight, child: valueText(varSp, isSpent: true))),
+            SizedBox(width: labelW, child: Text('Spent', style: labelStyle)),
+            SizedBox(width: valueW, child: val(fixedSp, isSpent: true)),
+            const SizedBox(width: 14),
+            SizedBox(width: valueW, child: val(varSp, isSpent: true)),
           ],
         ),
       ],
