@@ -53,31 +53,17 @@ UNIQUE(user_id, name)
 FOREIGN KEY (user_id) → users(id)
 
 
-investment_platforms
-────────────────────────
-id
-name
-code
-status
-version
-
-UNIQUE (code)
-UNIQUE (name)
-
-
 investment_accounts
 ────────────────────────
 id
 user_id
-platform_id
 name        -- Ex. My Zerodha Account 1
 account_identifier  -- actual broker/account identifier
 status
 version
 
-UNIQUE(user_id, platform_id, account_identifier)
+UNIQUE(user_id, account_identifier)
 UNIQUE(user_id, name)
-FOREIGN KEY (platform_id) → investment_platforms(id)
 FOREIGN KEY (user_id) → users(id)
 
 

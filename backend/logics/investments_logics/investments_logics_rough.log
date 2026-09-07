@@ -2,8 +2,8 @@ assets
 ────────────────────────
 id
 asset_class
-isin
-name
+isin (main identifier found in tradebook)
+name (copy of symbol only)
 symbol
 amfi_scheme_code BIGINT NULL
 status
@@ -12,6 +12,7 @@ version
 UNIQUE (isin)
 UNIQUE (amfi_scheme_code)
 
+Call https://api.tigzig.com/mf/v1/nav?scheme=INF200K01RP8&latest=true to get the price details and amfi scheme code.
 
 asset_price_history
 ────────────────────────
@@ -41,7 +42,7 @@ UNIQUE (asset_id)
 FOREIGN KEY (asset_id) → assets(id)
 
 
-investment_pots
+investment_pots (create default pots once user onboarded)
 ────────────────────────
 id
 user_id
@@ -53,32 +54,31 @@ UNIQUE(user_id, name)
 FOREIGN KEY (user_id) → users(id)
 
 
-investment_platforms
-────────────────────────
-id
-name
-code
-status
-version
-
-UNIQUE (code)
-UNIQUE (name)
-
-
-investment_accounts
+investment_accounts (Create default accounts once user onboarded)
 ────────────────────────
 id
 user_id
-platform_id
 name        -- Ex. My Zerodha Account 1
 account_identifier  -- actual broker/account identifier
 status
 version
 
-UNIQUE(user_id, platform_id, account_identifier)
+UNIQUE(user_id, account_identifier)
 UNIQUE(user_id, name)
-FOREIGN KEY (platform_id) → investment_platforms(id)
 FOREIGN KEY (user_id) → users(id)
+
+Default investment_accounts to be created at the time of user onboarding:
+user_id: asljda-sljl-asjdl-asjdla
+account_identifier: "will be filled at the time of initial statement uploaded to a specific account user selected"
+name: My Dmat Account 1
+status: ACTIVE
+version: 1
+
+user_id: asljda-sljl-asjdl-asjdla
+account_identifier: "will be filled at the time of initial statement uploaded to a specific account user selected"
+name: My Dmat Account 2
+status: ACTIVE
+version: 1
 
 
 investment_account_assets
