@@ -8,13 +8,13 @@ import 'settled_page.dart';
 import 'statement_upload_page.dart';
 
 // ══════════════════════════════════════════════════════════════════════════════
-// Unified Transactions Screen  (Add › Drafts › Settled)
+// Unified Transactions Screen  (Add Draft › Drafts › Settled)
 // ══════════════════════════════════════════════════════════════════════════════
 
 class TransactionsScreen extends StatefulWidget {
-  const TransactionsScreen({super.key, this.initialTab = 0});
+  const TransactionsScreen({super.key, this.initialTab = 1});
 
-  /// 0 = Drafts, 1 = Add Draft, 2 = Settled
+  /// 0 = Add Draft   1 = Drafts   2 = Settled
   final int initialTab;
 
   @override
@@ -24,13 +24,14 @@ class TransactionsScreen extends StatefulWidget {
 class _TransactionsScreenState extends State<TransactionsScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabCtrl;
+
   @override
   void initState() {
     super.initState();
     _tabCtrl = TabController(
       length: 3,
       vsync: this,
-      initialIndex: widget.initialTab,
+      initialIndex: widget.initialTab.clamp(0, 2),
     );
   }
 
@@ -56,6 +57,18 @@ class _TransactionsScreenState extends State<TransactionsScreen>
                 indicatorSize: TabBarIndicatorSize.tab,
                 splashBorderRadius: BorderRadius.circular(8),
                 tabs: [
+                  // ── 0: Add Draft ──────────────────────────────────────
+                  const Tab(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.add_circle_outline_rounded, size: 15),
+                        SizedBox(width: 6),
+                        Text('Add Draft'),
+                      ],
+                    ),
+                  ),
+                  // ── 1: Drafts ─────────────────────────────────────────
                   Tab(
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
@@ -70,16 +83,7 @@ class _TransactionsScreenState extends State<TransactionsScreen>
                       ],
                     ),
                   ),
-                  const Tab(
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.add_circle_outline_rounded, size: 15),
-                        SizedBox(width: 6),
-                        Text('Add Draft'),
-                      ],
-                    ),
-                  ),
+                  // ── 2: Settled ────────────────────────────────────────
                   const Tab(
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
@@ -101,8 +105,8 @@ class _TransactionsScreenState extends State<TransactionsScreen>
         child: TabBarView(
           controller: _tabCtrl,
           children: const [
+            _AddDraftContent(),
             DraftsPage(),
-            _AddTabContent(),
             SettledPage(),
           ],
         ),
@@ -111,100 +115,16 @@ class _TransactionsScreenState extends State<TransactionsScreen>
   }
 }
 
-// (Kept for reference — no longer used in navigation)
-class _FlowTabBar extends StatelessWidget {
-  const _FlowTabBar({required this.controller});
+// ── Add Draft tab content  (Manual / Statement toggle + page) ─────────────────
 
-  final TabController controller;
-
-  static const _tabs = [
-    (Icons.add_circle_outline_rounded, 'Add'),
-    (Icons.pending_actions_rounded, 'Drafts'),
-    (Icons.task_alt_rounded, 'Settled'),
-  ];
+class _AddDraftContent extends StatefulWidget {
+  const _AddDraftContent();
 
   @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-
-    return ListenableBuilder(
-      listenable: controller,
-      builder: (context, _) {
-        final active = controller.index;
-        return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              for (int i = 0; i < _tabs.length; i++) ...[
-                if (i > 0)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 6),
-                    child: Icon(
-                      Icons.arrow_forward_rounded,
-                      size: 12,
-                      color: cs.outlineVariant,
-                    ),
-                  ),
-                GestureDetector(
-                  onTap: () => controller.animateTo(i),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 200),
-                    curve: Curves.easeInOut,
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: active == i
-                          ? cs.primary
-                          : cs.surfaceContainerHighest,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          _tabs[i].$1,
-                          size: 13,
-                          color: active == i
-                              ? cs.onPrimary
-                              : cs.onSurfaceVariant,
-                        ),
-                        const SizedBox(width: 5),
-                        Text(
-                          _tabs[i].$2,
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: active == i
-                                ? FontWeight.w700
-                                : FontWeight.w500,
-                            color: active == i
-                                ? cs.onPrimary
-                                : cs.onSurfaceVariant,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ],
-          ),
-        );
-      },
-    );
-  }
+  State<_AddDraftContent> createState() => _AddDraftContentState();
 }
 
-// ── Add tab: Manual / Statement sub-toggle + content ─────────────────────────
-
-class _AddTabContent extends StatefulWidget {
-  const _AddTabContent();
-
-  @override
-  State<_AddTabContent> createState() => _AddTabContentState();
-}
-
-class _AddTabContentState extends State<_AddTabContent> {
+class _AddDraftContentState extends State<_AddDraftContent> {
   bool _isStatement = false;
 
   @override
@@ -212,9 +132,11 @@ class _AddTabContentState extends State<_AddTabContent> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        // Toggle constrained to hug its own content width (not full row)
         Padding(
-          padding: const EdgeInsets.fromLTRB(12, 36, 12, 0),
+          padding: const EdgeInsets.fromLTRB(16, 28, 16, 4),
           child: Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
               _ModeToggle(
                 isStatement: _isStatement,
@@ -232,6 +154,7 @@ class _AddTabContentState extends State<_AddTabContent> {
     );
   }
 }
+
 
 /// Thin top-of-screen loading bar driven by AppController.loading.
 class _LoadingBar extends StatelessWidget implements PreferredSizeWidget {
@@ -272,24 +195,10 @@ class AddDraftFlowScreen extends StatefulWidget {
 }
 
 class _AddDraftFlowScreenState extends State<AddDraftFlowScreen> {
-  bool _isStatement = false;
-
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: _ModeToggle(
-          isStatement: _isStatement,
-          onChanged: (v) => setState(() => _isStatement = v),
-        ),
-        bottom: const _LoadingBar(),
-      ),
-      body: SafeArea(
-        child: _isStatement
-            ? const StatementUploadPage()
-            : const AddDraftPage(),
-      ),
-    );
+    // Delegates to TransactionsScreen landing on the Add Draft tab.
+    return const TransactionsScreen(initialTab: 0);
   }
 }
 

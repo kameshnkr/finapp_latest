@@ -73,6 +73,7 @@ class BudgetTab extends StatelessWidget {
                 label: const Text('Add New Budget'),
                 style: TextButton.styleFrom(
                   visualDensity: VisualDensity.compact,
+                  foregroundColor: AppColors.amount,
                 ),
               ),
             ],

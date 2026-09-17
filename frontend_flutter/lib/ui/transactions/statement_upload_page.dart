@@ -703,7 +703,7 @@ class _StatementUploadPageState extends State<StatementUploadPage>
                   Navigator.of(context).push<void>(
                     MaterialPageRoute<void>(
                       builder: (_) =>
-                          const TransactionsScreen(initialTab: 0),
+                          const TransactionsScreen(initialTab: 1),
                     ),
                   );
                 },
