@@ -167,7 +167,7 @@ class _DraftsPageState extends State<DraftsPage> {
   void initState() {
     super.initState();
     _scrollCtrl.addListener(_onScroll);
-    Future.microtask(() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) context.read<AppController>().resetDateRange();
     });
   }

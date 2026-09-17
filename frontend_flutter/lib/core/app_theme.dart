@@ -16,7 +16,7 @@ abstract final class AppInsets {
 /// Never use cs.primary for data; cs.primary is reserved for UI chrome.
 abstract final class AppColors {
   /// Balances, funds available, neutral financial amounts
-  static const Color amount = Color(0xFF1A56DB);
+  static const Color amount = Color(0xFF1468F2);
 
   /// Credits, income, positive flows
   static const Color gain = Color(0xFF057A55);
@@ -35,10 +35,15 @@ abstract final class AppColors {
 }
 
 ThemeData buildFinappTheme() {
-  const seed = Color(0xFF1A56DB);
+  const seed = Color(0xFF1468F2);
   final scheme = ColorScheme.fromSeed(
     seedColor: seed,
     surface: Colors.white,
+  ).copyWith(
+    // Pin primary to exactly the seed so cs.primary == AppColors.amount
+    // everywhere — Banking pill, tab underline, icons, buttons all match.
+    primary: seed,
+    onPrimary: Colors.white,
   );
   return ThemeData(
     colorScheme: scheme,
@@ -64,12 +69,19 @@ ThemeData buildFinappTheme() {
       ),
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
     ),
-    appBarTheme: AppBarTheme(
+    appBarTheme: const AppBarTheme(
       centerTitle: false,
       elevation: 0,
-      scrolledUnderElevation: 0.5,
-      backgroundColor: AppColors.pageBg,
+      scrolledUnderElevation: 0,
+      backgroundColor: Colors.white,
       surfaceTintColor: Colors.transparent,
+    ),
+    tabBarTheme: TabBarThemeData(
+      dividerColor: AppColors.cardBorder,
+      labelStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+      unselectedLabelStyle:
+          const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+      indicatorSize: TabBarIndicatorSize.tab,
     ),
     dividerTheme: const DividerThemeData(color: AppColors.cardBorder),
     snackBarTheme: SnackBarThemeData(
