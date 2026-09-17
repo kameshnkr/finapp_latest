@@ -70,13 +70,13 @@ FOREIGN KEY (user_id) → users(id)
 Default investment_accounts to be created at the time of user onboarding:
 user_id: asljda-sljl-asjdl-asjdla
 account_identifier: "will be filled at the time of initial statement uploaded to a specific account user selected"
-name: My Dmat Account 1
+name: My Demat Account 1
 status: ACTIVE
 version: 1
 
 user_id: asljda-sljl-asjdl-asjdla
 account_identifier: "will be filled at the time of initial statement uploaded to a specific account user selected"
-name: My Dmat Account 2
+name: My Demat Account 2
 status: ACTIVE
 version: 1
 
@@ -127,7 +127,7 @@ user_id
 transaction_id
 pot_id
 
-allocation_method      -- PERCENTAGE / AMOUNT / UNITS
+allocation_method      -- PERCENTAGE / AMOUNT 
 allocation_value
 
 allocated_units

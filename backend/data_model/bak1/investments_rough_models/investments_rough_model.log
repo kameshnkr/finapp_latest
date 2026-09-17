@@ -127,7 +127,7 @@ user_id
 transaction_id
 pot_id
 
-allocation_method      -- PERCENTAGE / AMOUNT / UNITS
+allocation_method      -- PERCENTAGE / AMOUNT
 allocation_value
 
 allocated_units
