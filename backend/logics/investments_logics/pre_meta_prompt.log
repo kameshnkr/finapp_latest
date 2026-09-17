@@ -1,0 +1,37 @@
+draft pieces:
+
+#--------------------------------
+For a Pot card:
+Pot 1
+────────────────
+Units:          Σ units across assets where pot_id is this pot_id
+Current Value:  Σ current_value across assets where pot_id is this pot_id
+
+Table: pot_investment_positions
+
+
+#--------------------------------
+Default pots to be created at the time of user onboarding:
+Retirement
+Child Education
+Savings - Real Estate Purchase
+General
+
+
+Default investment_accounts to be created at the time of user onboarding:
+account_identifier: "will be filled at the time of initial statement uploaded to a specific account user selected"
+name: My Dmat Account 1
+status: ACTIVE
+version: 1
+
+
+
+#--------------------------------
+For simplicity:
+ - we ignore calculating invested amount at any level, pot, account, asset. because it complex to derive invested amount when sell happens and we have to identify which exact units were sold. but keep the implementation and schema flexible to support in in future.
+ - we ignore filling account identifier when statment uploading to a specific account user selected. we will support this feature later like throwing error when user tries to upload statment to a different account than he uploads first time. at first time upload we can fix this mapping and use it for future uploads and validate the account selection. but we are not doing it right now, ignore it.
+ - we should completely rely on llm to extract data from statment pdfs.
+
+
+
+

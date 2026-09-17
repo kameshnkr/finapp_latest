@@ -1,0 +1,186 @@
+assets
+────────────────────────
+id
+asset_class
+isin
+name
+symbol
+amfi_scheme_code BIGINT NULL
+status
+version
+
+UNIQUE (isin)
+UNIQUE (amfi_scheme_code)
+
+
+asset_price_history
+────────────────────────
+id
+asset_id
+price
+price_date
+source
+synced_at
+version
+
+FOREIGN KEY (asset_id) → assets(id)
+
+
+asset_latest_prices
+────────────────────────
+id
+asset_id
+price
+price_date
+source
+synced_at
+next_price_sync_after
+version
+
+UNIQUE (asset_id)
+FOREIGN KEY (asset_id) → assets(id)
+
+
+investment_pots
+────────────────────────
+id
+user_id
+name
+status
+version
+
+UNIQUE(user_id, name)
+FOREIGN KEY (user_id) → users(id)
+
+
+investment_platforms
+────────────────────────
+id
+name
+code
+status
+version
+
+UNIQUE (code)
+UNIQUE (name)
+
+
+investment_accounts
+────────────────────────
+id
+user_id
+platform_id
+name        -- Ex. My Zerodha Account 1
+account_identifier  -- actual broker/account identifier
+status
+version
+
+UNIQUE(user_id, platform_id, account_identifier)
+UNIQUE(user_id, name)
+FOREIGN KEY (platform_id) → investment_platforms(id)
+FOREIGN KEY (user_id) → users(id)
+
+
+investment_account_assets
+────────────────────────
+id
+user_id
+account_id
+asset_id
+status
+version
+
+UNIQUE(user_id, account_id, asset_id)
+FOREIGN KEY (account_id) → investment_accounts(id)
+FOREIGN KEY (asset_id) → assets(id)
+FOREIGN KEY (user_id) → users(id)
+
+
+investment_transactions
+────────────────────────
+id
+user_id
+account_asset_id
+
+transaction_type       -- BUY / SELL
+units
+price
+amount
+
+transaction_date
+source                 -- STATEMENT / MANUAL
+source_reference_id    -- Any transaction id provided by the broker/source in statment.  Could be nullable.
+fingerprint
+
+allocation_status      -- UNALLOCATED / PARTIAL / ALLOCATED
+version
+
+UNIQUE(user_id, fingerprint)
+FOREIGN KEY (account_asset_id) → investment_account_assets(id)
+FOREIGN KEY (user_id) → users(id)
+
+
+investment_transaction_pot_allocations
+────────────────────────
+id
+user_id
+transaction_id
+pot_id
+
+allocation_method      -- PERCENTAGE / AMOUNT
+allocation_value
+
+allocated_units
+allocated_amount
+
+version
+
+UNIQUE(user_id, transaction_id, pot_id)
+FOREIGN KEY (transaction_id) → investment_transactions(id)
+FOREIGN KEY (pot_id) → investment_pots(id)
+FOREIGN KEY (user_id) → users(id)
+
+
+
+
+
+
+<==== Derived/Read Models ====>
+
+pot_investment_positions
+────────────────────────
+id
+user_id
+pot_id
+account_asset_id
+
+units
+current_value
+
+version
+
+UNIQUE (user_id, pot_id, account_asset_id)
+FOREIGN KEY (pot_id) → investment_pots(id)
+FOREIGN KEY (account_asset_id) → investment_account_assets(id)
+FOREIGN KEY (user_id) → users(id)
+
+
+investment_positions
+────────────────────────
+id
+user_id
+account_asset_id
+
+units
+current_value
+
+version
+
+UNIQUE (user_id, account_asset_id)
+FOREIGN KEY (account_asset_id) → investment_account_assets(id)
+FOREIGN KEY (user_id) → users(id)
+
+
+Notes:
+ - created_at and updated_at are must for all the models so not added explicitly.
+ - Primary key is always (id)
