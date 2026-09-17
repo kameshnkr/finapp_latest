@@ -29,6 +29,7 @@ class AccountsTab extends StatelessWidget {
               label: const Text('Add New Account'),
               style: TextButton.styleFrom(
                 visualDensity: VisualDensity.compact,
+                foregroundColor: AppColors.amount,
               ),
             ),
           ),
