@@ -2,207 +2,64 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/app_theme.dart';
-import '../../state/app_controller.dart';
-import '../investments/investments_section.dart';
-import '../transactions/transaction_flow_screens.dart';
+import '../../state/investments_controller.dart';
 import '../widgets/coming_soon_placeholder.dart';
 import '../widgets/profile_view.dart';
-import 'budget_tab.dart';
-import 'accounts_tab.dart';
+import 'assets_tab.dart';
+import 'pots_tab.dart';
+import 'refresh_prices_action.dart';
+import 'trades_screen.dart';
 
 // ══════════════════════════════════════════════════════════════════════════════
-// HomeScreen — shell: owns ONLY the Banking/Investments global toggle and
-// mounts one of two FULLY INDEPENDENT section-root widgets. Each section
-// (_BankingSectionRoot below, InvestmentsSectionRoot in
-// lib/ui/investments/investments_section.dart) owns its own bottom nav bar,
-// nav-index state, and push targets — this file contains no
-// Investments-specific navigation logic at all.
+// InvestmentsSectionRoot — fully independent section: owns its own bottom
+// nav bar, nav-index state, and push targets. No code/state is shared with
+// Banking's section beyond the [globalSwitcher] widget it's handed (built
+// once by HomeScreen) and the app-level [onLogout] callback.
 // ══════════════════════════════════════════════════════════════════════════════
 
-class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
-
-  @override
-  State<HomeScreen> createState() => _HomeScreenState();
-}
-
-class _HomeScreenState extends State<HomeScreen> {
-  bool _isBanking = true;
-
-  @override
-  Widget build(BuildContext context) {
-    final app = context.watch<AppController>();
-
-    // Built once per rebuild and handed identically to both sections so the
-    // switcher pill looks and behaves the same regardless of which section
-    // is currently mounted.
-    final bankingSwitcher = _GlobalSwitcher(
-      isBanking: true,
-      onChanged: (v) => setState(() => _isBanking = v),
-    );
-    final investmentsSwitcher = _GlobalSwitcher(
-      isBanking: false,
-      onChanged: (v) => setState(() => _isBanking = v),
-    );
-
-    // IndexedStack keeps both sections' internal state (nav index, tab
-    // controllers, scroll position) alive across toggles, instead of
-    // rebuilding either section from scratch every time the user switches.
-    return IndexedStack(
-      index: _isBanking ? 0 : 1,
-      children: [
-        _BankingSectionRoot(
-          globalSwitcher: bankingSwitcher,
-          onLogout: () async => app.logout(),
-        ),
-        InvestmentsSectionRoot(
-          globalSwitcher: investmentsSwitcher,
-          onLogout: () async => app.logout(),
-          isActive: !_isBanking,
-        ),
-      ],
-    );
-  }
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-// Global Banking / Investments Switcher — shell-level (shared by both
-// sections' Home AppBar), not owned by either section.
-// ══════════════════════════════════════════════════════════════════════════════
-
-class _GlobalSwitcher extends StatelessWidget {
-  const _GlobalSwitcher({
-    required this.isBanking,
-    required this.onChanged,
-  });
-
-  final bool isBanking;
-  final ValueChanged<bool> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-
-    return Container(
-      height: 40,
-      decoration: BoxDecoration(
-        color: cs.surfaceContainerHighest.withAlpha(180),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _SwitcherPill(
-            icon: Icons.account_balance_rounded,
-            label: 'Banking',
-            active: isBanking,
-            onTap: () => onChanged(true),
-          ),
-          _SwitcherPill(
-            icon: Icons.bar_chart_rounded,
-            label: 'Investments',
-            active: !isBanking,
-            onTap: () => onChanged(false),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SwitcherPill extends StatelessWidget {
-  const _SwitcherPill({
-    required this.icon,
-    required this.label,
-    required this.active,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String label;
-  final bool active;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeInOut,
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-        decoration: BoxDecoration(
-          color: active ? cs.primary : Colors.transparent,
-          borderRadius: BorderRadius.circular(10),
-          boxShadow: active
-              ? [
-                  BoxShadow(
-                    color: cs.primary.withAlpha(50),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
-                  ),
-                ]
-              : [],
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              icon,
-              size: 15,
-              color: active ? cs.onPrimary : cs.onSurfaceVariant,
-            ),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: active ? FontWeight.w700 : FontWeight.w500,
-                color: active ? cs.onPrimary : cs.onSurfaceVariant,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-// BankingSectionRoot — fully independent section: owns its own bottom nav
-// bar, nav-index state, and push targets. This is a pixel-identical
-// relocation of what was previously HomeScreen's own body — no behavior
-// change, only the Investments branch (previously an inline IndexedStack
-// toggle here) has been removed since Investments now lives in its own
-// section entirely.
-// ══════════════════════════════════════════════════════════════════════════════
-
-class _BankingSectionRoot extends StatefulWidget {
-  const _BankingSectionRoot({
+class InvestmentsSectionRoot extends StatefulWidget {
+  const InvestmentsSectionRoot({
+    super.key,
     required this.globalSwitcher,
     required this.onLogout,
+    required this.isActive,
   });
 
+  /// Built once by HomeScreen (owns the Banking/Investments toggle state) and
+  /// placed identically in both sections' Home AppBar.
   final Widget globalSwitcher;
   final VoidCallback onLogout;
 
+  /// True only while this is the currently-visible top-level section.
+  /// Used solely to lazily trigger the first data load the moment the user
+  /// actually enters Investments — NOT on app start, since this widget is
+  /// always built (kept alive) by HomeScreen's outer IndexedStack regardless
+  /// of which section is currently shown.
+  final bool isActive;
+
   @override
-  State<_BankingSectionRoot> createState() => _BankingSectionRootState();
+  State<InvestmentsSectionRoot> createState() => _InvestmentsSectionRootState();
 }
 
-class _BankingSectionRootState extends State<_BankingSectionRoot>
+class _InvestmentsSectionRootState extends State<InvestmentsSectionRoot>
     with TickerProviderStateMixin {
   /// 0 = Home  1 = Reports  2 = Profile
   int _navIndex = 0;
 
-  late final TabController _homeSubTab; // Budgets / Accounts
+  late final TabController _homeSubTab; // Pots / Assets
+  bool _hasLoadedOnce = false;
 
   @override
   void initState() {
     super.initState();
     _homeSubTab = TabController(length: 2, vsync: this);
+    if (widget.isActive) _loadOnce();
+  }
+
+  @override
+  void didUpdateWidget(covariant InvestmentsSectionRoot oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!oldWidget.isActive && widget.isActive) _loadOnce();
   }
 
   @override
@@ -211,25 +68,31 @@ class _BankingSectionRootState extends State<_BankingSectionRoot>
     super.dispose();
   }
 
+  void _loadOnce() {
+    if (_hasLoadedOnce) return;
+    _hasLoadedOnce = true;
+    context.read<InvestmentsController>().loadHome();
+  }
+
   // ── Navigation ────────────────────────────────────────────────────────────
 
   /// Bottom-nav has 5 visual buttons; index 2 is the centre + FAB.
   /// Logical page indices: 0=Home  1=Reports  2=Profile.
-  /// Buttons 1 (Transactions) and 2 (+) push routes; they are never "active".
+  /// Buttons 1 (Trades) and 2 (Add) push routes; they are never "active".
   void _onNavTap(int buttonIndex) {
     switch (buttonIndex) {
       case 0: // Home
         if (_navIndex != 0) setState(() => _navIndex = 0);
-      case 1: // Transactions → opens on Drafts tab
+      case 1: // Trades — opens on the Un-labeled tab.
         Navigator.of(context).push<void>(
           MaterialPageRoute<void>(
-            builder: (_) => const TransactionsScreen(initialTab: 1),
+            builder: (_) => const InvestmentsTradesScreen(initialTab: 1),
           ),
         );
-      case 2: // + → opens on Add Draft tab
+      case 2: // Add — opens directly on the Add Trade tab.
         Navigator.of(context).push<void>(
           MaterialPageRoute<void>(
-            builder: (_) => const TransactionsScreen(initialTab: 0),
+            builder: (_) => const InvestmentsTradesScreen(initialTab: 0),
           ),
         );
       case 3: // Reports
@@ -243,34 +106,30 @@ class _BankingSectionRootState extends State<_BankingSectionRoot>
 
   @override
   Widget build(BuildContext context) {
-    final app = context.watch<AppController>();
-    final draftCount = app.drafts.length;
-
     return Scaffold(
       appBar: _buildAppBar(),
       body: IndexedStack(
         index: _navIndex,
         children: [
-          // ── 0: Home (Budgets / Accounts) ────────────────────────────
+          // ── 0: Home (Pots / Assets) ─────────────────────────────────
           TabBarView(
             controller: _homeSubTab,
-            children: const [BudgetTab(), AccountsTab()],
+            children: const [PotsTab(), AssetsTab()],
           ),
-          // ── 1: Reports ────────────────────────────────────────────────
+          // ── 1: Reports ──────────────────────────────────────────────
           const ComingSoonPlaceholder(
             icon: Icons.bar_chart_rounded,
             title: 'Reports',
             subtitle: 'Work in progress',
           ),
-          // ── 2: Profile ────────────────────────────────────────────────
+          // ── 2: Profile ──────────────────────────────────────────────
           ProfileView(onLogout: widget.onLogout),
         ],
       ),
       bottomNavigationBar: SafeArea(
         minimum: const EdgeInsets.fromLTRB(4, 0, 4, 10),
-        child: _BottomNavBar(
+        child: _InvestmentsBottomNavBar(
           currentPageIndex: _navIndex,
-          draftCount: draftCount,
           onTap: _onNavTap,
         ),
       ),
@@ -289,6 +148,7 @@ class _BankingSectionRootState extends State<_BankingSectionRoot>
         ),
         centerTitle: false,
         actions: [
+          const RefreshPricesAction(),
           IconButton(
             icon: const Icon(Icons.search_rounded),
             tooltip: 'Search',
@@ -302,40 +162,40 @@ class _BankingSectionRootState extends State<_BankingSectionRoot>
             indicatorSize: TabBarIndicatorSize.tab,
             splashBorderRadius: BorderRadius.circular(8),
             tabs: const [
-              Tab(text: 'Budgets'),
-              Tab(text: 'Accounts'),
+              Tab(text: 'Pots'),
+              Tab(text: 'Assets'),
             ],
           ),
         ),
       );
     }
 
-    // Reports / Profile
     const titles = ['', 'Reports', 'Profile'];
     return AppBar(title: Text(titles[_navIndex]));
   }
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// Bottom Navigation Bar — Banking-owned copy (unchanged from before).
+// Bottom Navigation Bar — Investments-owned copy (Home / Trades / Add /
+// Reports / Profile). Visually mirrors Banking's bottom nav for consistency,
+// but is an entirely independent widget so either section's nav can change
+// without touching the other.
 // ══════════════════════════════════════════════════════════════════════════════
 
-class _BottomNavBar extends StatelessWidget {
-  const _BottomNavBar({
+class _InvestmentsBottomNavBar extends StatelessWidget {
+  const _InvestmentsBottomNavBar({
     required this.currentPageIndex,
-    required this.draftCount,
     required this.onTap,
   });
 
   final int currentPageIndex;
-  final int draftCount;
   final void Function(int) onTap;
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     // Page 0=Home→button 0, Page 1=Reports→button 3, Page 2=Profile→button 4
-    // Buttons 1 (Transactions) and 2 (+) push routes and are never "active".
+    // Buttons 1 (Trades) and 2 (Add) push routes and are never "active".
     final activeButton = switch (currentPageIndex) {
       0 => 0,
       1 => 3,
@@ -365,7 +225,7 @@ class _BottomNavBar extends StatelessWidget {
           child: Row(
             children: [
               Expanded(
-                child: _NavItem(
+                child: _InvestmentsNavItem(
                   icon: Icons.home_rounded,
                   label: 'Home',
                   active: activeButton == 0,
@@ -373,18 +233,17 @@ class _BottomNavBar extends StatelessWidget {
                 ),
               ),
               Expanded(
-                child: _NavItem(
-                  icon: Icons.receipt_long_rounded,
-                  label: 'Transactions',
+                child: _InvestmentsNavItem(
+                  icon: Icons.sync_alt_rounded,
+                  label: 'Trades',
                   active: activeButton == 1,
-                  badgeCount: draftCount,
                   onTap: () => onTap(1),
                 ),
               ),
               // Spacer gap where the FAB floats above
               const SizedBox(width: 60),
               Expanded(
-                child: _NavItem(
+                child: _InvestmentsNavItem(
                   icon: Icons.bar_chart_rounded,
                   label: 'Reports',
                   active: activeButton == 3,
@@ -392,7 +251,7 @@ class _BottomNavBar extends StatelessWidget {
                 ),
               ),
               Expanded(
-                child: _NavItem(
+                child: _InvestmentsNavItem(
                   icon: Icons.person_outline_rounded,
                   label: 'Profile',
                   active: activeButton == 4,
@@ -463,20 +322,18 @@ class _BottomNavBar extends StatelessWidget {
   }
 }
 
-class _NavItem extends StatelessWidget {
-  const _NavItem({
+class _InvestmentsNavItem extends StatelessWidget {
+  const _InvestmentsNavItem({
     required this.icon,
     required this.label,
     required this.active,
     required this.onTap,
-    this.badgeCount = 0,
   });
 
   final IconData icon;
   final String label;
   final bool active;
   final VoidCallback onTap;
-  final int badgeCount;
 
   @override
   Widget build(BuildContext context) {
@@ -497,15 +354,7 @@ class _NavItem extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Badge(
-                isLabelVisible: badgeCount > 0,
-                offset: const Offset(8, -4),
-                label: Text(
-                  badgeCount > 50 ? '50+' : '$badgeCount',
-                  style: const TextStyle(fontSize: 9),
-                ),
-                child: Icon(icon, size: 22, color: color),
-              ),
+              Icon(icon, size: 22, color: color),
               const SizedBox(height: 3),
               Text(
                 label,

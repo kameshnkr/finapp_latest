@@ -1,0 +1,1334 @@
+<LRole>
+    You are a highly skilled full-stack engineer specializing in Node.js, TypeScript, Express, PostgreSQL, Flutter and Dart.
+
+    You build production-grade systems with:
+    - Clean architecture
+    - Strong typing
+    - Modular design
+    - Scalable backend structure
+    - Well-structured Flutter applications
+    - Secure multi-tenant APIs
+    - Reliable data processing workflows
+
+    You strictly follow established project patterns and best practices while avoiding over-engineering.
+</Role>
+
+
+<ProjectContext>
+
+    FinApp is a personal finance application with an existing Banking section and a new Investments section.
+
+    IMPORTANT:
+    Before implementing the Investments section, inspect and understand the existing Banking implementation thoroughly.
+
+    The Banking implementation should be treated as the primary reference for:
+    - Architecture
+    - Folder structure
+    - API patterns
+    - Authentication and authorization
+    - Database access patterns
+    - Pagination
+    - Error handling
+    - Background jobs
+    - File upload processing
+    - LLM-based statement parsing
+    - Deduplication
+    - Polling/job status handling
+    - Flutter state management
+    - Navigation
+    - UI patterns
+    - Selection and guided workflows
+    - Reconciliation flows
+
+    Reuse existing patterns wherever they are applicable instead of introducing new patterns or abstractions.
+
+    Do not blindly copy Banking code. Understand the existing implementation and adapt the same principles to Investments where the domain differs.
+
+
+    INVESTMENT PRODUCT PURPOSE
+
+    The Investments section is primarily a portfolio organization and decision-making tool.
+
+    The core purpose is not simply to show investment transactions, profits, or broker-level portfolio information.
+
+    The key differentiator is the concept of "Pots".
+
+    A Pot represents the user's financial goal or purpose for an investment.
+
+    For example:
+    - Retirement
+    - Child Education
+    - Savings - Real Estate Purchase
+    - General
+
+    A broker normally shows investments based on accounts, securities and holdings. It generally does not provide the user's own goal-oriented organization of those investments.
+
+    FinApp should allow the user to answer questions such as:
+
+    "How much money do I currently have allocated for Retirement?"
+    "How much do I currently have for my child's education?"
+    "How much of my current holdings are allocated toward a particular goal?"
+
+    Therefore, Pot allocation is a first-class concept in the Investments implementation.
+
+    The primary user-facing view should be the Pot view, while Assets provide the detailed underlying investment view.
+
+
+    IMPORTANT SIMPLIFICATION
+
+    We are intentionally NOT computing or displaying:
+    - Invested amount (We show only the current value)
+    - Gain / Loss
+    - Realized profit
+    - Unrealized profit
+    - Cost basis
+    - FIFO
+    - Weighted average cost
+
+    This is intentional.
+
+    The main reason is to keep the first version simple and avoid introducing significant accounting complexity when:
+    - Assets are bought at different prices
+    - Assets are partially sold
+    - Transactions are split across multiple Pots
+    - Pot allocations are changed
+    - Historical cost needs to be distributed between Pots
+
+    For this version, the important metric is CURRENT VALUE.
+
+    Current value should be based on:
+        units × latest available asset price
+
+    Pot current value should be:
+        SUM(current_value of all asset positions allocated to that Pot)
+
+
+    DOMAIN MODEL
+
+    The conceptual hierarchy is:
+
+        Investment Account
+            └── Asset
+                    ├── Units
+                    ├── Current Value
+                    └── Pot Allocations
+                            ├── Pot A
+                            ├── Pot B
+                            └── Pot C
+
+    Important distinction:
+
+    Money/holdings actually live at the Account + Asset level.
+
+    Investment Accounts are primarily used for:
+    - Identifying the external investment account
+    - Grouping assets
+    - Associating uploaded statements
+    - Storing broker/account identification
+
+    Assets are the actual investment holdings.
+
+    Therefore, in the Investments UI:
+    - "Assets" is the detailed holdings view.
+    - Accounts are only used to group assets and identify the source account.
+
+
+</ProjectContext>
+
+
+<ImplementationPrompt>
+
+    Implement the Investments section.
+
+    The design and development should remain consistent with the existing Banking implementation while adapting the UX and data model to investment-specific requirements.
+
+
+    <MainRules>
+
+        - Investment holdings live at the Account + Asset level, not at the Account level alone.
+
+        - The Assets tab should therefore show assets as the primary line items.
+
+        - Assets should be grouped by Investment Account.
+
+        - Investment Accounts exist mainly for identification and grouping.
+
+        - An asset's current units/value can be allocated across multiple Pots.
+
+        - Pot allocation and reallocation should happen at the Account + Asset level.
+
+        - A single investment transaction/trade can be allocated to multiple Pots.
+
+        - Pot allocation should support percentage-based allocation.
+
+        - The system should maintain the transaction-level allocation information required to derive current Pot positions.
+
+        - Do not introduce invested amount or gain/loss calculations anywhere in this implementation.
+
+        - Current Value is the primary financial value displayed throughout the Investments section.
+
+    </MainRules>
+
+
+    <GlobalScopeAndOnboarding>
+
+        When the user enters the Investments section, check whether the user already has Investment Pots and Investment Accounts.
+
+        If they do not exist, create the default data.
+
+        Default Investment Pots:
+
+        1. Retirement
+           Description: Long-term wealth for retirement.
+
+        2. Child Education
+           Description: Savings for future child education.
+
+        3. Savings - Real Estate Purchase
+           Description: Savings for a future real estate purchase.
+
+        4. General
+           Description: General-purpose investments.
+
+        All default Pots should initially have zero current value.
+
+
+        Default Investment Accounts:
+
+        1. My Demat Account 1
+        2. My Demat Account 2
+
+        The accounts should initially have:
+        - account_identifier = NULL
+        - broker_name = NULL
+
+        When the user uploads the first statement for an account:
+        - Extract the broker name from the statement.
+        - Extract the external account identifier from the statement.
+        - Update the selected Investment Account with these values.
+
+        Do not require the user to manually create an account before uploading the first statement.
+
+
+        SECURITY
+
+        Every Investment API must:
+        - Authenticate the user.
+        - Authorize access to the requested resource.
+        - Verify ownership through user_id.
+        - Prevent cross-user access through IDs supplied by the client.
+        - Validate all request parameters.
+        - Never expose another user's resources.
+        - Follow the security patterns already implemented in Banking.
+
+        Treat multi-tenant data isolation as a mandatory requirement.
+
+
+    </GlobalScopeAndOnboarding>
+
+
+    <InvestmentsHome>
+
+        When the user enters Investments, land on the Pots tab.
+
+        The Investments home screen has two top-level tabs:
+
+        - Pots
+        - Assets
+
+
+        <PotsTab>
+
+            At the top show:
+
+                Total Portfolio
+
+            Total Portfolio Value should be:
+
+                SUM(current_value across all investment positions) current value should be computed at runtime based on the units and latest prices of each asset.
+
+            Do not show:
+            - Invested amount
+            - Gain/Loss
+            - Units
+
+            Below Total Portfolio, show the list of Investment Pots.
+
+            Each Pot should show:
+            - Pot name
+            - Pot description
+            - Current Value
+
+            Pot Current Value:
+
+                SUM(current_value)
+                FROM investments_pot_positions
+                WHERE pot_id = selected pot
+
+            The Pot screen should primarily communicate:
+            "How much money do I currently have allocated toward each goal?"
+
+            Include an informational banner at the bottom of the pots list:
+
+                "Track all your investments segregated into goal-wise Pots.
+                 Add investment statements to keep your portfolio up to date."
+
+            Keep the UI simple and consistent with the existing Banking UI.
+
+
+        </PotsTab>
+
+
+        <AssetsTab>
+
+            Show the user's investment assets.
+
+            Assets should be grouped by Investment Account.
+
+            IMPORTANT:
+            Do NOT make the Investment Account itself an expandable/collapsible container.
+
+            Instead:
+
+                Account Header
+                    Asset 1
+                    Asset 2
+                    Asset 3
+                    Asset 4
+
+            The account header should act only as a visual grouping/divider.
+
+            Account header should show:
+            - User-defined account name
+            - Broker name, if available
+            - Account identifier, if available
+
+            Example:
+
+                My Demat Account 1
+                Zerodha · XXXXXXXX
+
+            If broker/account identifier has not yet been populated:
+
+                My Demat Account 1
+                Broker: Not added
+
+
+            Each Asset should be an expandable/collapsible item.
+
+            Default state:
+                Collapsed
+
+            Collapsed Asset should show:
+            - Asset name
+            - Asset type
+            - Units
+            - Latest NAV/Price
+            - Current Value
+
+            Example:
+
+                HDFC Bank
+                Stock
+                50 units
+                ₹1,630.20
+                ₹81,510
+
+
+            When an Asset is expanded, show its Pot allocation breakdown.
+
+            Show ALL active Pots under the Asset, including Pots with zero allocation.
+
+            Each Pot allocation should show:
+            - Pot name
+            - Allocation percentage
+            - Allocation amount (should be calculated at runtime based on the units and latest prices of each asset)
+
+            Do NOT show units in the Pot allocation breakdown.
+
+            Example:
+
+                UTI Nifty50 Fund
+                Current Value: ₹81,510
+
+                Retirement             60%     ₹48,906
+                Child Education        25%     ₹20,378
+                General                 15%     ₹12,227
+
+            The allocation amount should be based on the current value of the asset calculated at runtime based on the units and latest price of asset.
+
+            Provide a way to reallocate the asset balance between Pots.
+
+            Reallocation should happen at the Account + Asset level and should follow the existing Banking allocation/reallocation UX as closely as applicable.
+
+
+            ACCOUNT RENAMING
+
+            The user should be able to rename an Investment Account.
+
+            The rename action belongs to the Account Header.
+
+            Do NOT provide account rename actions inside individual Asset rows.
+
+            ACCOUNT ADDING
+
+            The user should be able to add a new Investment Account. Only account name should be taken from the user and broker name optional.
+
+        </AssetsTab>
+
+    </InvestmentsHome>
+
+
+    <BottomNavigation>
+
+        Use the same global bottom navigation structure as Banking.
+
+        The functionality should be adapted for Investments.
+
+        The navigation should include:
+
+        - Home
+        - Trades
+        - Add
+        - Reports
+        - Profile
+
+        "Trades" replaces the Banking "Transactions" label for the Investments section.
+
+    </BottomNavigation>
+
+
+    <Trades>
+
+        Trades should contain three sub-tabs:
+
+        - Add
+        - Un-labeled
+        - Labeled
+
+        The overall interaction model should follow the Banking Transactions implementation wherever applicable.
+
+
+        <AddTrade>
+
+            The Add action should follow the same lifecycle and processing principles as Banking's statement upload flow.
+
+            When the user starts adding investment trades:
+
+            1. Select the Investment Account.
+
+            2. Upload two files (Two files are mandatory):
+               - Holdings Statement
+               - Trade Book / Trades Statement
+
+            Holdings file:
+            - Used to identify the current assets/holdings.
+            - Provides the expected current units.
+            - May provide the latest price/NAV. (Though we won't use these latest prices to update in asset price history and asset latest prices)
+            - Used primarily for reconciliation.
+
+            Trade Book:
+            - Contains individual trades.
+            - Typically includes:
+                Asset/Symbol
+                ISIN
+                Trade Date
+                Buy/Sell
+                Units
+                Price
+                Amount
+                Trade ID
+                Order ID
+                Execution Time
+                and other broker-specific fields.
+
+
+            RECONCILIATION
+
+            Before saving the parsed trades:
+
+            1. Parse the existing/current holdings.
+            2. Parse the Trade Book.
+            3. Calculate the resulting units for every affected Asset.
+
+            Example:
+
+                Existing units
+                + BUY units
+                - SELL units
+                = Resulting units
+
+            Compare the resulting units against the units reported in the Holdings Statement.
+
+            This reconciliation must happen BEFORE committing the trades.
+
+            If all assets reconcile:
+                Continue with the upload.
+
+            If any assets do not reconcile:
+                Show the mismatch clearly.
+
+            For every mismatch, propose a reconciliation dummy trade similar to the Banking reconciliation flow.
+
+            The user must either:
+                - Accept the proposed reconciliation trades
+                OR
+                - Discard/cancel the upload.
+
+            Do not commit an inconsistent upload silently.
+
+            The system must not accept an upload with unresolved reconciliation differences unless the user explicitly accepts the proposed reconciliation adjustment.
+
+
+            PARSING
+
+            Use the LLM to parse both files for the first version.
+
+            Do not implement the hybrid deterministic-parser + LLM fallback architecture used by Banking yet.
+
+            However:
+            - Parsing must be robust.
+            - Validate the LLM output.
+            - Normalize the extracted values.
+            - Handle missing fields safely.
+            - Handle different column names.
+            - Handle different broker formats.
+            - Never trust raw LLM output directly.
+            - Validate units, price, amount, dates and transaction types before persistence.
+
+
+            DEDUPLICATION
+
+            Implement robust trade deduplication.
+
+            Use a fingerprint similar to what implemented in Banking implementation.
+
+            Do NOT depend only on broker-provided Trade ID because some brokers may not provide it.
+
+            The fingerprint should use a combination of stable fields where available, such as:
+
+                broker
+                account identifier
+                asset identity / ISIN
+                transaction type
+                units
+                price
+                amount
+                trade date/time
+                trade ID
+                order ID
+
+            Use only fields that are appropriate and available for the source.
+
+            The fingerprint strategy should be generic enough to support different brokers.
+
+            Follow the existing Banking deduplication implementation for architecture and behavior.
+
+
+            BACKGROUND PROCESSING
+
+            Follow the Banking statement_jobs/background-processing pattern.
+
+            If the existing Banking implementation uses a statement_jobs-style workflow, reuse the same approach where appropriate.
+
+            Investment uploads may take time because of:
+            - File parsing
+            - LLM processing
+            - Reconciliation
+            - Database processing
+
+            Implement robust:
+            - Job creation
+            - Status tracking
+            - Polling
+            - Retry/error handling
+            - Completion handling
+
+            Follow the existing Banking UX for waiting/polling wherever possible.
+
+
+            IMPORTANT:
+
+            During upload processing, DO NOT allocate trades to Pots.
+
+            Save successfully processed trades as UNALLOCATED.
+
+            After successful processing, show a CTA allowing the user to navigate to the Un-labeled tab and allocate the trades.
+
+            Do not automatically assign/allocate trades to Pots.
+
+
+            ASSET PRICES
+
+            Do not automatically refresh/update:
+
+                investments_asset_price_history
+                investments_asset_latest_prices
+
+            as part of every statement upload.
+
+            Instead, provide a small/muted manual option in the UI to refresh asset prices on homescreen of investments.
+
+            When triggered:
+            - Show progress.
+            - Refresh the required asset prices.
+            - Update latest prices.
+            - Update historical prices according to the existing price-sync design.
+
+        </AddTrade>
+
+
+        <UnlabeledTrades>
+
+            Show all investment trades where:
+
+                allocation_status = UNALLOCATED
+
+            Display enough information to help the user allocate the trade:
+
+            - Asset
+            - Transaction type
+            - Units
+            - Price
+            - Amount
+            - Trade date
+            - Account
+
+            Follow the existing Banking implementation for:
+            - Pagination
+            - Selection
+            - List behavior
+            - Empty states
+            - Loading states
+            - Error states
+
+
+            Provide bottom controls:
+
+            - Label Single Trade
+            - Label Multiple Trades
+
+            If the user selects "Label Multiple Trades", support multi-selection of trades using the same selection behavior as the Banking multi-selection draft flow.
+
+
+            After the trade selection is complete, determine the available allocation options based on the number of selected trades:
+
+            - Single trade selected:
+                Show:
+                [Allocate to Single Pot]
+                [Allocate to Multiple Pots]
+
+            - Multiple trades selected:
+                Show:
+                [Allocate to Single Pot]
+                [Allocate to Multiple Pots] as disabled
+
+                Display a short informational message next to the disabled option:
+
+                "To allocate a trade to multiple Pots, select a single trade."
+
+            The user should be able to proceed with the enabled option directly.
+
+            Do not introduce the Multiple Trades → Multiple Pots allocation flow at this stage. The goal is to keep the allocation UX simple and avoid the additional complexity of handling different Pot allocations across multiple selected trades.
+
+            Selection and guided flow behavior should follow the existing Banking implementation wherever applicable.
+
+
+            POT ALLOCATION FLOWS
+
+            Support the following allocation flows:
+
+
+            1. Single Trade → Single Pot
+
+               User selects one trade and chooses one Pot.
+
+               Show the available Pots and allow the user to select one Pot.
+
+               Complete the allocation after the user confirms.
+
+
+            2. Multiple Trades → Single Pot
+
+               User selects multiple trades and chooses one Pot.
+
+               Assign all selected trades to the selected Pot.
+
+               Complete the allocation after the user confirms.
+
+
+            3. Single Trade → Multiple Pots
+
+               User selects one trade and chooses multiple Pots.
+
+               Allow the user to split the trade across the selected Pots using percentages.
+
+               Example:
+
+                   Retirement       60%
+                   Child Education  30%
+                   General          10%
+
+               The allocation percentages must total exactly 100%.
+
+               The UI should clearly show the remaining percentage while the user is entering allocations and should prevent confirmation until the allocation is valid.
+
+
+            4. Multiple Trades → Multiple Pots
+
+               NOT SUPPORTED FOR NOW.
+
+               Keep the "Allocate to Multiple Pots" option disabled when multiple trades are selected.
+
+               Show the informational message:
+
+               "To allocate a trade to multiple Pots, select a single trade."
+
+               Do not implement any multi-trade/multi-Pot allocation logic at this stage.
+
+
+            For every allocation:
+            - Persist the appropriate allocation records.
+            - Update allocation_status.
+            - Update derived Pot positions.
+            - And do whatever other updates are needed if i miss anything.
+            - Ensure the asset's Pot allocation remains consistent.
+            - Ensure perform the allocation primarily on the percentage of units technically, not on the amount. amount is the derived value at the runtime we won't save amount in allocations table.
+
+
+            After successful labeling:
+
+            - Remove the trade from the Un-labeled view.
+            - It should appear in the Labeled view.
+            - Pot values should reflect the resulting allocation.
+
+        </UnlabeledTrades>
+
+
+        <LabeledTrades>
+
+            Show trades that have been completely allocated to Pots.
+
+            The UI should clearly communicate:
+            - Asset
+            - BUY/SELL
+            - Units
+            - Price
+            - Amount (Derived value at runtime)
+            - Trade date
+            - Account
+            - Allocation status
+
+            Each trade should provide an option to view its Pot allocation details.
+
+            When expanded/opened, show:
+
+                Pot
+                Allocation %
+                Allocated Units
+                Allocated Amount (Derived value at runtime)
+
+            Keep the initial list compact and expose detailed allocation information only when requested.
+
+            Follow existing Banking patterns where applicable.
+
+        </LabeledTrades>
+
+    </Trades>
+
+
+    <PriceRefresh>
+
+        Provide a small, muted "Refresh Prices" action on the Investments home screen.
+
+        This is a manual, user-triggered operation.
+
+        When the user triggers a price refresh:
+
+        1. Identify the user's investment assets that have a valid ISIN and only Mutual Funds types. We are not supporting other asset classes yet.
+        2. Fetch the latest NAVs for those assets using the configured external NAV API.
+        3. Update:
+           - investments_asset_latest_prices
+           - investments_asset_price_history where applicable
+        4. Recalculate current_value for the affected investment positions.
+        5. Recalculate the affected Pot current values.
+        6. Refresh the UI with the updated values.
+
+        While the refresh is running:
+        - Show an appropriate loading/progress state.
+        - Prevent duplicate refresh requests from being triggered simultaneously.
+        - Handle API failures gracefully and show a meaningful error message.
+        - Do not leave partially updated derived values if the refresh operation fails.
+
+        IMPORTANT:
+        - Do not make price refresh mandatory on page load.
+        - Do not automatically trigger price synchronization during statement upload.
+        - Do not automatically trigger price synchronization whenever the user opens the Investments section.
+        - The refresh operation should be idempotent.
+        - Do not attempt to use this API for assets that do not have an AMFI scheme code.
+        - The API integration should be isolated behind a backend service rather than calling the external API directly from Flutter.
+        - Do not expose the external API directly to the frontend.
+
+
+        <PriceRefreshApi(Only for Mutual Funds and ETFs)>
+
+            External NAV API:
+
+            GET:
+            https://api.tigzig.com/mf/v1/nav?scheme={isin_list_comma_separated}&latest=true
+
+            Example:
+
+            GET:
+            https://api.tigzig.com/mf/v1/nav?scheme=INF846K01EN1,INF200K01RP8&latest=true
+
+            The `scheme` parameter should be dynamically constructed using the ISINs of the user's relevant Mutual Fund assets.
+
+            Do not hard-code the example isins in the implementation.
+
+             Match the API response to the corresponding asset using the `isin` or `scheme_code` as appropriate.
+
+            Sample response:
+            {
+              "count": 2,
+              "schemes": [
+                {
+                  "scheme_code": 119788,
+                  "scheme_name": "SBI GOLD FUND- DIRECT PLAN - GROWTH",
+                  "isin": "INF200K01RP8",
+                  "isin2": null,
+                  "first_available_date": "2013-01-02",
+                  "latest_available_date": "2026-09-25",
+                  "data": [
+                    {
+                      "date": "2026-09-25",
+                      "nav": 45.971
+                    }
+                  ],
+                  "count": 1
+                },
+                {
+                  "scheme_code": 120513,
+                  "scheme_name": "Axis Treasury Advantage Fund - Direct Plan - Growth Option",
+                  "isin": "INF846K01EN1",
+                  "isin2": null,
+                  "first_available_date": "2013-01-02",
+                  "latest_available_date": "2026-09-25",
+                  "data": [
+                    {
+                      "date": "2026-09-25",
+                      "nav": 3506.9464
+                    }
+                  ],
+                  "count": 1
+                }
+              ],
+              "not_found": []
+            }
+
+            Response handling:
+                - Match the response to `investments_assets` using `isin` / `scheme_code`.
+                - Use `data[].date` as `price_date` and `data[].nav` as the price.
+                - Update `investments_asset_latest_prices` and `investments_asset_price_history`.
+                - Ignore assets returned in `not_found`.
+
+            <AssetClassHandling>
+
+                The provided API is a Mutual Fund NAV API.
+
+                Therefore:
+
+                - Only Mutual Funds and ETFs with valid ISIN can be refreshed using this API.
+                - Stocks, and other asset classes should not be sent to this API.
+                - Keep the price-refresh implementation extensible so additional price sources can be added later for other asset classes.
+                - Do not introduce those additional integrations now.
+
+            </AssetClassHandling>
+
+        </PriceRefreshApi>
+
+    </PriceRefresh>
+
+
+    <ReferenceFiles>
+
+        Trade Book and Holdings files are attached as reference material.
+
+        These files represent one broker's format only.
+
+        IMPORTANT:
+        Do not build the parser specifically around this broker's exact column structure.
+
+        Use these files to understand:
+        - Typical fields
+        - Data relationships
+        - Trade information
+        - Holdings information
+        - Possible spreadsheet structures
+
+        The parser should be generic enough to support different brokers.
+
+        If the uploaded file is an Excel workbook:
+        - Inspect all relevant worksheets/sub-sheets.
+        - Do not assume only the first sheet contains useful data.
+
+        Trade execution time should be preferred as the transaction/trade date and time when available.
+
+        Normalize the extracted date/time before saving it.
+
+
+        ASSET IDENTIFICATION
+
+        Use stable asset identifiers wherever available.
+
+        ISIN should be the only asset identifier to be allowed, if the file don't contain isin, then reject the upload.
+
+        Do not rely solely on broker-specific asset names or symbols as asset identifier.
+
+
+        FINGERPRINTING
+
+        A possible fingerprint input may include:
+
+            Broker
+            Account Identifier
+            Asset / ISIN
+            Transaction Type
+            Units
+            Price
+            Amount
+            Trade ID
+            Order ID
+            Trade Date/Time
+
+        Do not blindly use this exact combination instead use the appropriate combination based on the available source data.
+
+        Determine the appropriate fingerprint fields based on the available source data and existing Banking implementation.
+
+        The fingerprint must be deterministic and robust across different broker statement formats.
+
+    </ReferenceFiles>
+
+
+</ImplementationPrompt>
+
+
+<DataModels>
+
+    investments_assets
+    ────────────────────────────────
+    id
+    asset_class
+    isin
+    name
+    symbol
+    amfi_scheme_code BIGINT NULL
+    status
+    version
+
+    UNIQUE (isin)
+    UNIQUE (amfi_scheme_code)
+
+
+    investments_asset_price_history
+    ────────────────────────────────
+    id
+    asset_id
+    price
+    price_date
+    source
+    synced_at
+    version
+
+    FOREIGN KEY (asset_id) → investments_assets(id)
+
+
+    investments_asset_latest_prices
+    ────────────────────────────────
+    id
+    asset_id
+    price
+    price_date
+    source
+    synced_at
+    next_price_sync_after
+    version
+
+    UNIQUE (asset_id)
+    FOREIGN KEY (asset_id) → investments_assets(id)
+
+
+    investment_pots
+    ────────────────────────────────
+    id
+    user_id
+    name
+    status
+    version
+
+    UNIQUE(user_id, name)
+    FOREIGN KEY (user_id) → users(id)
+
+
+    investment_accounts
+    ────────────────────────────────
+    id
+    user_id
+    name
+    account_identifier
+    broker_name
+    status
+    version
+
+    account_identifier is nullable initially.
+
+    broker_name is nullable initially.
+
+    UNIQUE(user_id, account_identifier)
+    UNIQUE(user_id, name)
+
+    FOREIGN KEY (user_id) → users(id)
+
+
+    investment_account_assets
+    ────────────────────────────────
+    id
+    user_id
+    account_id
+    asset_id
+    status
+    version
+
+    UNIQUE(user_id, account_id, asset_id)
+
+    FOREIGN KEY (account_id) → investment_accounts(id)
+    FOREIGN KEY (asset_id) → investments_assets(id)
+    FOREIGN KEY (user_id) → users(id)
+
+
+    investment_transactions
+    ────────────────────────────────
+    id
+    user_id
+    account_asset_id
+
+    transaction_type       -- BUY / SELL
+    units
+    price
+    amount (here we can add amount as a transaction is already happened event and units and price at which they were bought/sold will not change)
+
+    transaction_date
+
+    source                   -- STATEMENT / MANUAL
+    source_reference_id     -- Broker/source transaction ID, nullable, add if available
+    fingerprint
+
+    allocation_status        -- UNALLOCATED / ALLOCATED
+
+    version
+
+    UNIQUE(user_id, fingerprint)
+
+    FOREIGN KEY (account_asset_id) → investment_account_assets(id)
+    FOREIGN KEY (user_id) → users(id)
+
+
+    investment_transaction_pot_allocations
+    ────────────────────────────────
+    id
+    user_id
+    transaction_id
+    pot_id
+
+    allocation_method       -- PERCENTAGE (only single method for now, later we may add other methods like amount, units)
+    allocation_value - 10%, 20%, 30%, etc.
+
+    allocated_units
+
+    version
+
+    UNIQUE(user_id, transaction_id, pot_id)
+
+    FOREIGN KEY (transaction_id) → investment_transactions(id)
+    FOREIGN KEY (pot_id) → investment_pots(id)
+    FOREIGN KEY (user_id) → users(id)
+
+    - Note that we won't save allocated amount in this table because it requires updating all the effected allocation entries when prices refreshed which is not efficient.
+
+    <DerivedReadModels>
+
+        investments_pot_positions
+        ────────────────────────────────
+        id
+        user_id
+        pot_id
+        account_asset_id
+
+        units
+
+        version
+
+        UNIQUE(user_id, pot_id, account_asset_id)
+
+        FOREIGN KEY (pot_id) → investment_pots(id)
+        FOREIGN KEY (account_asset_id) → investment_account_assets(id)
+        FOREIGN KEY (user_id) → users(id)
+
+        - Not that we are not saving current value in this derived positions table as well, it should be computed at the runtime, because even if we save it in positions table, it should be updated when prices refreshed. And we will need to do more volume of updates when we implement silent background refresh job, which requires updating for all the user's positions even user is active or not, instead calculating at the runtime is more efficient.
+    
+
+        investment_positions
+        ────────────────────────────────
+        id
+        user_id
+        account_asset_id
+
+        units
+
+        version
+
+        UNIQUE(user_id, account_asset_id)
+
+        FOREIGN KEY (account_asset_id) → investment_account_assets(id)
+        FOREIGN KEY (user_id) → users(id)
+
+        - Here as well, no current value should be saved.
+
+    </DerivedReadModels>
+
+
+    NOTES:
+
+    - created_at and updated_at are mandatory for all models but omitted above for brevity.
+    - Primary key is always (id) for all tables.
+    - Use the "investments_" prefix for all Investment-specific tables consistently.
+    - Preserve the project's existing naming conventions if the existing codebase uses a slightly different but established convention.
+    - Do not introduce redundant tables or fields without a concrete requirement.
+    - We won't save current value or amount no where else other that raw transactions which is immutable already happened event. So whereever current value is required, it should be computed at the runtime by looking at the latest prices of the assets and the untis allocated.
+
+</DataModels>
+
+
+<BusinessRules>
+
+    1. A user owns all Investment Pots, Accounts, Account Assets and Transactions associated with user_id.
+
+    2. An Investment Account can contain multiple Assets.
+
+    3. An Asset can exist in multiple Investment Accounts.
+
+    4. A single Asset holding within an Account can be allocated across multiple Pots.
+
+    5. A single Trade can be allocated across multiple Pots.
+
+    6. Pot allocation percentages for a single allocation must total 100%.
+
+    7. Pot current value is derived from current Asset latest price and the Pot's allocation units.
+
+    8. Total Portfolio Value is the sum of current values of all Investment Positions.
+
+    9. No Invested / Cost Basis / Gain / Loss calculation is required.
+
+    10. Upload processing must not silently commit unreconciled trades.
+
+    11. Trades are initially stored as Un-labeled and then allow user to label them to Pots.
+
+    12. Pot allocation happens as a separate user-driven step.
+
+    13. Account name is user-controlled.
+
+    14. Broker name and account identifier are populated from statements when available.
+
+    15. Current price is not refreshed automatically during every upload.
+
+</BusinessRules>
+
+
+<Guidelines>
+
+    - First inspect the existing Banking implementation before making architectural decisions.
+    - Reuse existing project patterns wherever possible.
+    - Do not introduce a parallel architecture for Investments unless the existing Banking architecture cannot support the requirement.
+    - Maintain strict TypeScript typing.
+    - Use async/await with proper error handling.
+    - Use appropriate HTTP status codes.
+    - Validate all request inputs.
+    - Implement authentication and authorization on every protected endpoint.
+    - Verify resource ownership at the service/repository level as appropriate.
+    - Keep database constraints strong.
+    - Keep business logic out of controllers.
+    - Keep repositories responsible for persistence/data access.
+    - Keep services responsible for business logic.
+    - Keep controllers thin.
+    - Keep Flutter UI, business logic and data handling appropriately separated.
+    - Follow existing Flutter state-management patterns in the project.
+    - Follow existing API client and error-handling patterns.
+    - Handle loading, empty, error and success states.
+    - Handle long-running upload jobs gracefully.
+    - Ensure frontend behavior is consistent with backend state.
+    - Ensure database updates are transactional where multiple related records must be updated atomically.
+    - Avoid unnecessary abstractions.
+    - Avoid unnecessary dependencies.
+    - Prefer simple, maintainable production-ready solutions.
+    - Do not compromise security or data integrity for implementation simplicity.
+
+</Guidelines>
+
+
+<DoNot>
+
+    - Do not over-engineer the solution.
+    - Do not introduce FIFO/cost-basis accounting.
+    - Do not calculate Invested Amount.
+    - Do not calculate Gain/Loss.
+    - Do not introduce tax accounting.
+    - Do not add unnecessary libraries.
+    - Do not create unnecessary abstractions.
+    - Do not duplicate existing Banking infrastructure unnecessarily.
+    - Do not automatically assign uploaded trades to Pots.
+    - Do not automatically refresh asset prices during every upload.
+    - Do not hard-code a specific broker's file structure.
+    - Do not trust raw LLM output without validation.
+    - Do not bypass reconciliation.
+    - Do not allow cross-user resource access.
+    - Do not generate unnecessary documentation files.
+    - Do not generate long verbose explanations or summaries files.
+    - Do not generate Markdown explanations unless explicitly requested.
+
+</DoNot>
+
+
+<ImplementationProcess>
+
+    Before writing code:
+
+    1. Inspect the existing Banking implementation.
+    2. Identify the reusable patterns for:
+       - Navigation
+       - API structure
+       - Database migrations
+       - Repositories
+       - Services
+       - Authentication
+       - Authorization
+       - File uploads
+       - Statement processing
+       - Background jobs
+       - LLM parsing
+       - Deduplication
+       - Reconciliation
+       - Polling
+       - Flutter state management
+       - Selection workflows
+       - Allocation workflows
+
+    3. Inspect the existing database schema and migration conventions.
+
+    4. Inspect existing frontend navigation and screen structure.
+
+    5. Inspect existing API client/service patterns.
+
+    6. Implement Investments incrementally using the existing patterns.
+
+    7. Keep changes localized to the Investments functionality unless an existing shared component genuinely needs modification.
+
+    8. Do not modify working Banking behavior unless it is required for a shared component or infrastructure improvement.
+
+    9. After implementation, verify:
+       - Authentication
+       - Authorization
+       - Tenant isolation
+       - Database constraints
+       - Reconciliation
+       - Deduplication
+       - Allocation correctness
+       - Current value calculations
+       - Loading/error states
+       - Upload job lifecycle
+       - Frontend/backend consistency
+
+
+</ImplementationProcess>
+
+
+<Output>
+
+    Generate:
+
+    1. Backend changes in:
+       backend/
+
+    2. Flutter changes in:
+       frontend_flutter/
+
+    Follow the existing project structure rather than creating a new architecture.
+
+
+    Backend should maintain clear separation of:
+
+    - Routes
+    - Middlewares
+    - Controllers
+    - Services
+    - Repositories
+    - Utils
+
+    Frontend should maintain clear separation of:
+
+    - UI
+    - State/business logic
+    - API/data handling
+    - Models
+
+
+    DATABASE
+
+    Generate the required database migrations following the project's existing migration conventions.
+
+    Do not manually modify production database state outside the project's migration mechanism.
+
+
+    TESTING
+
+    Add tests where the existing project already has a testing pattern, especially for:
+
+    - Allocation calculations
+    - Reconciliation
+    - Deduplication
+    - Current value calculations
+    - Authorization/ownership
+    - Upload processing edge cases
+
+
+    README
+
+    Generate or update a very short README.md only if required.
+
+    It should only contain the important sequence required to run and test the Investments functionality locally end-to-end.
+
+    Do not generate lengthy documentation.
+
+
+    VERSION INFORMATION
+
+    Node.js:
+        22.17.1
+
+    Flutter:
+        3.41.6
+
+    Dart:
+        3.11.4
+
+
+    IMPORTANT FINAL INSTRUCTION
+
+    Do not start by implementing everything at once.
+
+    First inspect the existing Banking implementation and identify the exact files, services, models, APIs and Flutter components that should be reused.
+
+    Then implement the Investments functionality incrementally while keeping the existing application stable.
+
+    Prefer modifying/reusing existing patterns over introducing new ones.
+
+</Output>

@@ -27,6 +27,39 @@ npm run dev
 
 API listens on `http://localhost:3000` by default.
 
+## Investments (local run + test)
+
+Independent section, parallel schema/backend/Flutter shell to Banking (see
+`backend/logics/investments_logics/` for the full spec).
+
+1. Apply the Investments schema (in addition to the base schema above):
+
+```bash
+psql "$DATABASE_URL" -f backend/data_model/bak1/migration_investments_core.sql
+```
+
+2. Start the backend as usual (`npm run dev` in `backend/`) — Pots/Accounts
+   bootstrap automatically for a user on first Investments API call.
+3. In the Flutter app, use the Banking/Investments switcher (top of Home) to
+   enter the Investments section; add trades via **Add** (2-file upload:
+   Holdings Statement + Trade Book), label them via **Trades → Un-labeled**,
+   and manually refresh Mutual Fund/ETF NAVs via the small sync icon on the
+   Investments Home AppBar.
+4. Backend regression scripts (no network/LLM dependency — safe to re-run
+   any time; each creates and fully deletes its own temporary test data):
+
+```bash
+cd backend
+npm run test:investments
+```
+
+   Covers reconciliation mismatch math, allocation math (incl. the SELL
+   insufficient-units guard), fingerprint dedup, and cross-user ownership
+   checks. The full upload pipeline (Excel parsing + LLM extraction) is
+   exercised live via `npx tsx src/scripts/*` ad-hoc scripts during
+   development rather than as a checked-in automated test, since it
+   requires a real LLM API key and synthetic `.xlsx` fixtures.
+
 ## Exposing the API with ngrok
 
 Use this when the app runs on a **physical phone** or any network without your machine’s LAN IP.

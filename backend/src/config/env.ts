@@ -28,4 +28,30 @@ export const env = {
   // Statement upload limits (override via env vars)
   maxStatementPages: parseInt(process.env.MAX_STATEMENT_PAGES ?? "10", 10),
   maxStatementFileSizeKb: parseInt(process.env.MAX_STATEMENT_FILE_SIZE_KB ?? "200", 10),
+
+  // ── Investments (independent config, additive only) ──────────────────────
+  // Per-trade "amount ≈ units × price" sanity tolerance: max(absolute, relative).
+  investmentsAmountToleranceAbs: parseFloat(process.env.INVESTMENTS_AMOUNT_TOLERANCE_ABS ?? "1"),
+  investmentsAmountTolerancePct: parseFloat(process.env.INVESTMENTS_AMOUNT_TOLERANCE_PCT ?? "0.01"),
+  // Rows per LLM call when parsing Holdings/Trade Book spreadsheets.
+  investmentsExcelRowBatchSize: parseInt(process.env.INVESTMENTS_EXCEL_ROW_BATCH_SIZE ?? "60", 10),
+  // Safety cap on data rows per worksheet.
+  investmentsMaxExcelRows: parseInt(process.env.INVESTMENTS_MAX_EXCEL_ROWS ?? "5000", 10),
+  // Max size per uploaded file (Holdings / Trade Book), in KB.
+  investmentsMaxUploadFileSizeKb: parseInt(
+    process.env.INVESTMENTS_MAX_UPLOAD_FILE_SIZE_KB ?? "10000",
+    10
+  ),
+  // Manual price refresh (tigzig NAV API) — Mutual Fund/ETF assets only.
+  investmentsTigzigNavUrl:
+    process.env.INVESTMENTS_TIGZIG_NAV_URL ?? "https://api.tigzig.com/mf/v1/nav",
+  // Max ISINs per external API call — batched to keep query strings/responses small.
+  investmentsPriceRefreshBatchSize: parseInt(
+    process.env.INVESTMENTS_PRICE_REFRESH_BATCH_SIZE ?? "50",
+    10
+  ),
+  investmentsPriceRefreshTimeoutMs: parseInt(
+    process.env.INVESTMENTS_PRICE_REFRESH_TIMEOUT_MS ?? "15000",
+    10
+  ),
 };
