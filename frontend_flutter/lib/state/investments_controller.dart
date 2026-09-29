@@ -106,6 +106,32 @@ class InvestmentsController extends ChangeNotifier {
     await _quietRefresh();
   }
 
+  /// Throws on failure (e.g. duplicate name) — the create sheet catches and
+  /// shows an inline error, mirroring createAccount.
+  Future<void> createPot({required String name, String? description}) async {
+    await _api.createPot(name: name, description: description);
+    await _quietRefresh();
+  }
+
+  Future<void> updatePot({
+    required String potId,
+    required String name,
+    String? description,
+  }) async {
+    InvestmentsPotDto? existing;
+    for (final p in portfolio?.pots ?? const <InvestmentsPotDto>[]) {
+      if (p.id == potId) {
+        existing = p;
+        break;
+      }
+    }
+    if (existing == null) {
+      throw StateError('Pot not found locally — refresh and try again.');
+    }
+    await _api.updatePot(potId: potId, name: name, description: description, version: existing.version);
+    await _quietRefresh();
+  }
+
   /// Manual, user-triggered NAV refresh (Mutual Fund/ETF assets only — see
   /// PriceRefresh spec). Throws on failure (the calling widget shows a
   /// SnackBar with the message); on success, always re-fetches Pot/Asset

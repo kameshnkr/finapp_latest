@@ -62,6 +62,30 @@ export async function getPotsForUser(
   return r.rows;
 }
 
+/**
+ * Renames/re-describes an existing Pot (optimistic concurrency via
+ * [version], mirroring investmentsAccountRepository.renameAccount). Returns
+ * null on a version mismatch (or if the Pot doesn't belong to this user) —
+ * the caller distinguishes "not found" from "version conflict" itself.
+ */
+export async function updatePot(
+  client: Db,
+  userId: bigint,
+  potId: bigint,
+  name: string,
+  description: string | null,
+  version: number
+): Promise<InvestmentsPotRow | null> {
+  const r = await client.query<InvestmentsPotRow>(
+    `UPDATE investments_pots
+     SET name = $1, description = $2, version = version + 1, updated_at = now()
+     WHERE id = $3 AND user_id = $4 AND version = $5
+     RETURNING ${POT_COLS}`,
+    [name, description, potId, userId, version]
+  );
+  return r.rows[0] ?? null;
+}
+
 export async function insertPot(
   client: Db,
   userId: bigint,

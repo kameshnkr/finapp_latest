@@ -495,6 +495,7 @@ export async function confirmInvestmentsUpload(
           transactionDate,
           sourceReferenceId: null,
           fingerprint: dummyFingerprint,
+          source: "RECONCILIATION",
         },
       ]);
       if (!inserted) continue;

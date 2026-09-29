@@ -8,18 +8,28 @@ class InvestmentsPotDto {
     required this.name,
     required this.description,
     required this.currentValue,
+    required this.version,
   });
 
   final String id;
   final String name;
   final String? description;
   final String currentValue;
+  /// Needed for the optimistic-concurrency edit call (see
+  /// InvestmentsController.updatePot).
+  final int version;
 
+  /// Shared by 3 endpoints with slightly different shapes: GET pots/ (list,
+  /// always includes the derived currentValue) and POST/PATCH pots/ (create
+  /// /update, which never compute currentValue — a freshly created/renamed
+  /// Pot has no allocations yet to derive one from anyway, and the
+  /// controller always re-fetches the authoritative list right after).
   factory InvestmentsPotDto.fromJson(Map<String, dynamic> j) => InvestmentsPotDto(
         id: j['id'] as String,
         name: j['name'] as String,
         description: j['description'] as String?,
-        currentValue: j['currentValue'] as String,
+        currentValue: j['currentValue'] as String? ?? '0.00',
+        version: (j['version'] as num?)?.toInt() ?? 1,
       );
 }
 
@@ -224,6 +234,7 @@ class InvestmentsTradeDto {
     required this.price,
     required this.amount,
     required this.transactionDate,
+    required this.source,
     required this.allocationStatus,
     required this.potAllocations,
     required this.version,
@@ -242,11 +253,16 @@ class InvestmentsTradeDto {
   final String price;
   final String amount;
   final String transactionDate; // yyyy-MM-dd
+  /// STATEMENT (real broker trade) | MANUAL | RECONCILIATION (a
+  /// system-generated adjustment trade created to reconcile a Holdings-file
+  /// unit mismatch during upload — never an actual broker trade).
+  final String source;
   final String allocationStatus; // UNALLOCATED | ALLOCATED
   final List<InvestmentsTradeAllocationDto> potAllocations;
   final int version;
 
   bool get isBuy => transactionType == 'BUY';
+  bool get isReconciliation => source == 'RECONCILIATION';
 
   factory InvestmentsTradeDto.fromJson(Map<String, dynamic> j) {
     final allocs = (j['potAllocations'] as List<dynamic>? ?? [])
@@ -266,6 +282,7 @@ class InvestmentsTradeDto {
       price: j['price'] as String,
       amount: j['amount'] as String,
       transactionDate: j['transactionDate'] as String,
+      source: j['source'] as String? ?? 'STATEMENT',
       allocationStatus: j['allocationStatus'] as String,
       potAllocations: allocs,
       version: j['version'] as int,

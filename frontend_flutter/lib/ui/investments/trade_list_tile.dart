@@ -73,6 +73,10 @@ class TradeListTile extends StatelessWidget {
                       style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: typeColor),
                     ),
                   ),
+                  if (trade.isReconciliation) ...[
+                    const SizedBox(width: 6),
+                    const _ReconciliationBadge(),
+                  ],
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
@@ -99,6 +103,19 @@ class TradeListTile extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
+              if (trade.isReconciliation)
+                Padding(
+                  padding: EdgeInsets.only(left: selectMode ? 44 : 0, top: 3),
+                  child: Text(
+                    'Created for reconciliation — not an actual broker trade',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: Colors.amber.shade900,
+                      fontStyle: FontStyle.italic,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
               ?trailing,
             ],
           ),
@@ -111,4 +128,34 @@ class TradeListTile extends StatelessWidget {
 String _formatUnits(double units) {
   if (units == units.roundToDouble()) return units.toStringAsFixed(0);
   return units.toStringAsFixed(3).replaceFirst(RegExp(r'0+$'), '').replaceFirst(RegExp(r'\.$'), '');
+}
+
+/// Marks a trade as system-generated for reconciliation (source ==
+/// 'RECONCILIATION') — shown in both the Un-labeled and Labeled tabs since
+/// both pages render trades through this shared tile.
+class _ReconciliationBadge extends StatelessWidget {
+  const _ReconciliationBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    final color = Colors.amber.shade900;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        color: Colors.amber.withAlpha(35),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.sync_alt_rounded, size: 11, color: color),
+          const SizedBox(width: 3),
+          Text(
+            'Reconciliation',
+            style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: color),
+          ),
+        ],
+      ),
+    );
+  }
 }

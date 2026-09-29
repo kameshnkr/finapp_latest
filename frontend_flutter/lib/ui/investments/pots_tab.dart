@@ -5,6 +5,7 @@ import '../../core/app_theme.dart';
 import '../../data/models/investments_models.dart';
 import '../../state/investments_controller.dart';
 import '../../utils/amount_formatter.dart';
+import 'investments_pot_sheets.dart';
 
 /// Pots tab — primary Investments view. Answers "how much money do I
 /// currently have allocated toward each goal?". Deliberately shows ONLY
@@ -34,8 +35,8 @@ class PotsTab extends StatelessWidget {
     return ListView(
       padding: AppInsets.screen,
       children: [
-        _TotalPortfolioCard(totalValue: totalValue),
-        const SizedBox(height: 16),
+        _TotalPortfolioHeader(totalValue: totalValue),
+        const SizedBox(height: 14),
         ...portfolio.pots.map((p) => _PotCard(pot: p)),
         const SizedBox(height: 4),
         const _InfoBanner(),
@@ -44,8 +45,8 @@ class PotsTab extends StatelessWidget {
   }
 }
 
-class _TotalPortfolioCard extends StatelessWidget {
-  const _TotalPortfolioCard({required this.totalValue});
+class _TotalPortfolioHeader extends StatelessWidget {
+  const _TotalPortfolioHeader({required this.totalValue});
 
   final double totalValue;
 
@@ -54,32 +55,94 @@ class _TotalPortfolioCard extends StatelessWidget {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+    // Deliberately NOT a Card — plain on the page background, mirroring
+    // Banking's Budget tab header (Unallocated info + "Add New Budget") row
+    // exactly, per the reference design. Left padding matches the x-offset
+    // where each _PotCard's own icon starts (16 outer + 16 card-inner), so
+    // this header lines up with the Pot rows below instead of sitting
+    // further left than everything else on the page.
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 2, 4, 2),
+      // IntrinsicHeight lets the VerticalDivider below stretch to match the
+      // tallest sibling (the title+amount Column) instead of collapsing to
+      // zero height. Both halves are wrapped in equal-flex Expanded so the
+      // divider lands at the row's true horizontal center, rather than
+      // hugging whichever side has less content.
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Row(
-              children: [
-                Icon(Icons.pie_chart_rounded, size: 15, color: cs.onSurfaceVariant),
-                const SizedBox(width: 6),
-                Text(
-                  'Total Portfolio',
-                  style: theme.textTheme.labelMedium?.copyWith(
-                    color: cs.onSurfaceVariant,
-                    fontWeight: FontWeight.w600,
+            Expanded(
+              // No boxed icon here — a small inline glyph beside the label
+              // (same treatment as Banking's Budget tab "Unallocated" row)
+              // reads cleaner in a slim, unboxed header than a colored icon
+              // tile competing with the two-line title+amount block.
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    // start — icon's top edge lines up with the title
+                    // text's top edge, instead of centering against it.
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Same glyph size as each _PotCard's icon, but muted
+                      // grey (not blue) since this is a plain label, not a
+                      // Pot's own identity. Nudged down slightly (top
+                      // padding) so it sits visually level with the title
+                      // text, since the glyph's own bounding box has extra
+                      // headroom above its visible shape.
+                      Padding(
+                        padding: const EdgeInsets.only(top: 3),
+                        child: Icon(Icons.pie_chart_rounded, size: 19, color: cs.onSurfaceVariant),
+                      ),
+                      const SizedBox(width: 7),
+                      Text(
+                        'Total Portfolio',
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          color: cs.onSurfaceVariant,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  // Indented by icon width (19) + gap (7) so the amount
+                  // lines up under "Total Portfolio" itself, not under the
+                  // icon above it.
+                  Padding(
+                    padding: const EdgeInsets.only(left: 26),
+                    child: Text(
+                      '₹${compactAmount(totalValue)}',
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.amount,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            VerticalDivider(
+              width: 24,
+              thickness: 1,
+              indent: 2,
+              endIndent: 2,
+              color: AppColors.cardBorder,
+            ),
+            Expanded(
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: () => showCreateInvestmentsPotSheet(context),
+                  icon: const Icon(Icons.add, size: 16),
+                  label: const Text('Add New Pot'),
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    foregroundColor: AppColors.amount,
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
                   ),
                 ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text(
-              '₹${compactAmount(totalValue)}',
-              style: theme.textTheme.headlineMedium?.copyWith(
-                fontWeight: FontWeight.w700,
-                color: AppColors.amount,
-                letterSpacing: -0.3,
               ),
             ),
           ],
@@ -145,6 +208,18 @@ class _PotCard extends StatelessWidget {
                 fontWeight: FontWeight.w700,
                 color: AppColors.amount,
               ),
+            ),
+            IconButton(
+              onPressed: () => showEditInvestmentsPotSheet(
+                context,
+                potId: pot.id,
+                currentName: pot.name,
+                currentDescription: pot.description,
+              ),
+              icon: const Icon(Icons.edit_outlined, size: 18),
+              tooltip: 'Edit Pot',
+              visualDensity: VisualDensity.compact,
+              style: IconButton.styleFrom(foregroundColor: cs.onSurfaceVariant),
             ),
           ],
         ),

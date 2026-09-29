@@ -32,6 +32,9 @@ import { computeInvestmentsFingerprint } from "../utils/investmentsFingerprint.j
 import { allocateTransactions, SELL_INSUFFICIENT_UNITS_MESSAGE } from "../services/investmentsAllocationService.js";
 import { getAssetsGroupedByAccount, getPotsOverview } from "../services/investmentsPortfolioService.js";
 import { listAccounts } from "../services/investmentsAccountService.js";
+import { createPot, updatePot } from "../services/investmentsPotService.js";
+import { listTradesPaged } from "../services/investmentsTradeQueryService.js";
+import { computeReconciliationDummyFingerprint } from "../utils/investmentsFingerprint.js";
 import { HttpError } from "../utils/errors.js";
 
 const RUN_TAG = Date.now().toString(36);
@@ -484,6 +487,113 @@ async function main(): Promise<void> {
   } catch (e) {
     bad("6a. all 3 concurrent first-load calls resolve without throwing", `threw: ${e}`);
   }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // 7. Pot CRUD — create/edit, duplicate-name rejection, version-conflict
+  //    rejection, and cross-user ownership isolation on edit.
+  // ═══════════════════════════════════════════════════════════════════════
+  console.log("\n7. Pot CRUD (create/edit)");
+
+  const newPot = await createPot(owner.id, "Vacation Fund", "Trip savings");
+  assertEqual("7a. createPot: name", newPot.name, "Vacation Fund");
+  assertEqual("7a. createPot: description", newPot.description, "Trip savings");
+  assertEqual("7a. createPot: starts at version 1", newPot.version, 1);
+
+  await assertThrowsHttp(
+    "7b. createPot rejects a duplicate name for the same user",
+    () => createPot(owner.id, "Vacation Fund", null),
+    409,
+    "already exists"
+  );
+
+  const editedPot = await updatePot(
+    owner.id,
+    BigInt(newPot.id),
+    "Vacation Fund 2026",
+    "Updated description",
+    newPot.version
+  );
+  assertEqual("7c. updatePot: name changed", editedPot.name, "Vacation Fund 2026");
+  assertEqual("7c. updatePot: description changed", editedPot.description, "Updated description");
+  assertEqual("7c. updatePot: version incremented", editedPot.version, newPot.version + 1);
+
+  await assertThrowsHttp(
+    "7d. updatePot rejects a stale version (optimistic concurrency)",
+    () => updatePot(owner.id, BigInt(newPot.id), "Another Name", null, newPot.version /* stale */),
+    409,
+    "Version conflict"
+  );
+
+  await assertThrowsHttp(
+    "7e. otherUser cannot edit owner's Pot (404, not found for them)",
+    () => updatePot(other.id, BigInt(newPot.id), "Hijacked", null, editedPot.version),
+    404,
+    "Pot not found"
+  );
+
+  await assertThrowsHttp(
+    "7f. updatePot rejects renaming to a name that collides with another of the user's Pots",
+    () => updatePot(owner.id, BigInt(newPot.id), potA.name, null, editedPot.version),
+    409,
+    "already exists"
+  );
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // 8. Reconciliation trades are clearly marked (source='RECONCILIATION'),
+  //    distinct from real broker trades ('STATEMENT'), and that marking
+  //    survives into the Un-labeled/Labeled trade list API responses.
+  // ═══════════════════════════════════════════════════════════════════════
+  console.log("\n8. Reconciliation trade marking");
+
+  const reconTradeDate = "2026-04-01";
+  const reconFingerprint = computeReconciliationDummyFingerprint({
+    accountId: ownerAccount.id,
+    accountAssetId: ownerAccountAsset.id,
+    isin: TEST_ISIN,
+    transactionType: "BUY",
+    units: "5.000000",
+    transactionDate: reconTradeDate,
+  });
+  const [reconRow] = await txRepo.insertTransactions(pool, owner.id, [
+    {
+      accountAssetId: ownerAccountAsset.id,
+      transactionType: "BUY",
+      units: "5.000000",
+      price: "25.5000",
+      amount: "127.50",
+      transactionDate: reconTradeDate,
+      sourceReferenceId: null,
+      fingerprint: reconFingerprint,
+      source: "RECONCILIATION",
+    },
+  ]);
+  assertEqual("8a. dummy trade persists with source='RECONCILIATION'", reconRow!.source, "RECONCILIATION");
+
+  const unlabeledPage = await listTradesPaged(owner.id, "UNALLOCATED", { limit: 50 });
+  const reconInUnlabeled = unlabeledPage.trades.find((t) => t.id === reconRow!.id.toString());
+  assertEqual(
+    "8b. the reconciliation trade is visible in the Un-labeled list with source='RECONCILIATION'",
+    reconInUnlabeled?.source,
+    "RECONCILIATION"
+  );
+
+  const realTradeInUnlabeled = unlabeledPage.trades.find((t) => t.id === trade7.toString());
+  assertEqual(
+    "8c. a real broker trade in the same list still reports source='STATEMENT'",
+    realTradeInUnlabeled?.source,
+    "STATEMENT"
+  );
+
+  // Label the reconciliation trade and confirm the marking survives into
+  // the Labeled list too (per spec: shown in BOTH tabs).
+  await allocateTransactions(owner.id, [reconRow!.id], [{ potId: potA.id.toString(), percentage: 100 }]);
+  const labeledPage = await listTradesPaged(owner.id, "ALLOCATED", { limit: 50 });
+  const reconInLabeled = labeledPage.trades.find((t) => t.id === reconRow!.id.toString());
+  assertEqual(
+    "8d. the reconciliation trade also reports source='RECONCILIATION' in the Labeled list",
+    reconInLabeled?.source,
+    "RECONCILIATION"
+  );
 
   // ── Summary ────────────────────────────────────────────────────────────
   console.log(`\n\u2500\u2500 ${pass} passed, ${fail} failed \u2500\u2500\n`);

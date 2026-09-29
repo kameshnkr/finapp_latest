@@ -11,3 +11,13 @@ investmentsPotRouter.get(
   "/",
   asyncHandler((req, res) => potController.list(req as AuthedRequest, res))
 );
+
+investmentsPotRouter.post(
+  "/",
+  asyncHandler((req, res) => potController.create(req as AuthedRequest, res))
+);
+
+investmentsPotRouter.patch(
+  "/:id",
+  asyncHandler((req, res) => potController.update(req as AuthedRequest, res))
+);

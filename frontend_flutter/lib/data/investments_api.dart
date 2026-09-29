@@ -18,6 +18,40 @@ class InvestmentsApi {
     return InvestmentsPortfolioDto.fromJson(j);
   }
 
+  /// POST /api/investments/pots/ — name required, description optional.
+  Future<InvestmentsPotDto> createPot({
+    required String name,
+    String? description,
+  }) async {
+    final j = await _client.postJson('/api/investments/pots/', body: {
+      'name': name,
+      if (description != null && description.isNotEmpty) 'description': description,
+    }) as Map<String, dynamic>;
+    return InvestmentsPotDto.fromJson(j['pot'] as Map<String, dynamic>);
+  }
+
+  /// PATCH /api/investments/pots/:id — name + description together
+  /// (optimistic concurrency via [version]). Sends description explicitly
+  /// (even when clearing it) — omitting the field would be interpreted the
+  /// same as clearing it server-side, so the caller must always pass the
+  /// intended final value.
+  Future<InvestmentsPotDto> updatePot({
+    required String potId,
+    required String name,
+    String? description,
+    required int version,
+  }) async {
+    final j = await _client.patchJson(
+      '/api/investments/pots/$potId',
+      body: {
+        'name': name,
+        if (description != null && description.isNotEmpty) 'description': description,
+        'version': version,
+      },
+    ) as Map<String, dynamic>;
+    return InvestmentsPotDto.fromJson(j['pot'] as Map<String, dynamic>);
+  }
+
   /// GET /api/investments/accounts/ — plain Account list (incl. version).
   Future<List<InvestmentsAccountDto>> fetchAccounts() async {
     final j = await _client.getJson('/api/investments/accounts/') as Map<String, dynamic>;

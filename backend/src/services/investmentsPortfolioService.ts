@@ -23,7 +23,7 @@ function money(v: number): string {
  */
 export async function getPotsOverview(userId: bigint): Promise<{
   totalPortfolioValue: string;
-  pots: { id: string; name: string; description: string | null; currentValue: string }[];
+  pots: { id: string; name: string; description: string | null; currentValue: string; version: number }[];
 }> {
   await ensureDefaultInvestmentsDataForUser(userId);
 
@@ -57,6 +57,7 @@ export async function getPotsOverview(userId: bigint): Promise<{
       name: p.name,
       description: p.description,
       currentValue: money(potValueMap.get(p.id.toString()) ?? 0),
+      version: p.version,
     })),
   };
 }

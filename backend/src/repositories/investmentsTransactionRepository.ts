@@ -47,6 +47,12 @@ export type NewInvestmentsTransactionItem = {
   transactionDate: string;
   sourceReferenceId: string | null;
   fingerprint: string;
+  /** Defaults to 'STATEMENT' (real broker trades from an upload). Pass
+   * 'RECONCILIATION' for system-generated dummy trades created to reconcile
+   * a Holdings-file unit mismatch — see investmentsUploadProcessingService's
+   * confirmInvestmentsUpload — so the UI can clearly label them as
+   * adjustments rather than actual broker trades. */
+  source?: "STATEMENT" | "MANUAL" | "RECONCILIATION";
 };
 
 export async function insertTransactions(
@@ -61,7 +67,7 @@ export async function insertTransactions(
       `INSERT INTO investments_transactions
          (id, user_id, account_asset_id, transaction_type, units, price, amount,
           transaction_date, source, source_reference_id, fingerprint, allocation_status)
-       VALUES ($1,$2,$3,$4,$5::numeric,$6::numeric,$7::numeric,$8::date,'STATEMENT',$9,$10,'UNALLOCATED')
+       VALUES ($1,$2,$3,$4,$5::numeric,$6::numeric,$7::numeric,$8::date,$9,$10,$11,'UNALLOCATED')
        RETURNING ${TX_COLS}`,
       [
         id,
@@ -72,6 +78,7 @@ export async function insertTransactions(
         item.price,
         item.amount,
         item.transactionDate,
+        item.source ?? "STATEMENT",
         item.sourceReferenceId,
         item.fingerprint,
       ]
