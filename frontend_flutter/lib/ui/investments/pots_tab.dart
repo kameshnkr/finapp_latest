@@ -185,9 +185,35 @@ class _PotCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    pot.name,
-                    style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Flexible(
+                        child: Text(
+                          pot.name,
+                          style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      // Edit icon sits right next to the Pot's name —
+                      // kept subtle (small, faint) so it doesn't compete
+                      // with the Pot's name for attention.
+                      InkWell(
+                        onTap: () => showEditInvestmentsPotSheet(
+                          context,
+                          potId: pot.id,
+                          currentName: pot.name,
+                          currentDescription: pot.description,
+                        ),
+                        borderRadius: BorderRadius.circular(6),
+                        child: Padding(
+                          padding: const EdgeInsets.all(2),
+                          child: Icon(Icons.edit_outlined, size: 13, color: cs.onSurfaceVariant.withAlpha(140)),
+                        ),
+                      ),
+                    ],
                   ),
                   if (pot.description != null && pot.description!.isNotEmpty) ...[
                     const SizedBox(height: 2),
@@ -208,18 +234,6 @@ class _PotCard extends StatelessWidget {
                 fontWeight: FontWeight.w700,
                 color: AppColors.amount,
               ),
-            ),
-            IconButton(
-              onPressed: () => showEditInvestmentsPotSheet(
-                context,
-                potId: pot.id,
-                currentName: pot.name,
-                currentDescription: pot.description,
-              ),
-              icon: const Icon(Icons.edit_outlined, size: 18),
-              tooltip: 'Edit Pot',
-              visualDensity: VisualDensity.compact,
-              style: IconButton.styleFrom(foregroundColor: cs.onSurfaceVariant),
             ),
           ],
         ),
