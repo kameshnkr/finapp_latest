@@ -141,6 +141,83 @@ function fail(reason: string): never {
   throw new Error(reason);
 }
 
+function groupByIsin<T extends { isin: string }>(entries: T[]): Map<string, T[]> {
+  const map = new Map<string, T[]>();
+  for (const e of entries) {
+    const arr = map.get(e.isin);
+    if (arr) arr.push(e);
+    else map.set(e.isin, [e]);
+  }
+  return map;
+}
+
+/**
+ * Resolves the single canonical name (and symbol) to use for an ISIN, given
+ * EVERY raw Holdings row and EVERY raw Trade Book row that reported that
+ * ISIN — not just one of each.
+ *
+ * Why this matters: the LLM extracts each row mostly independently (small
+ * batches, limited context), so a free-text field like "name" occasionally
+ * gets hallucinated on a single row even though the numeric/ISIN fields on
+ * that SAME row are extracted correctly (seen in production: a Trade Book
+ * row with the correct ISIN/units/price for "SBI GOLD FUND" came back with
+ * name "HDFC Flexi Cap Fund" — a fund that does not appear anywhere in
+ * either uploaded file). A single bad row must not be allowed to poison the
+ * shared investments_assets.name for that ISIN (which is global, not
+ * per-row), especially since a Trade Book can contain many rows for the
+ * same ISIN while Holdings has (usually) exactly one.
+ *
+ * Fix: take a majority vote over every row's reported name for this ISIN,
+ * across BOTH files combined. Ties (including the common 1-vote-vs-1-vote
+ * case of one Holdings row vs one Trade Book row) are broken in favour of
+ * Holdings, since it is a single authoritative "what you currently hold"
+ * statement — Trade Book rows are far more numerous and independently
+ * parsed, so any one of them disagreeing with Holdings is more likely to be
+ * the noisy outlier than the other way around.
+ */
+export function resolveAssetIdentity(
+  holdingsForIsin: RawHoldingEntry[],
+  tradesForIsin: RawTradeEntry[],
+  isin: string
+): { name: string; symbol: string | null; assetClass: InvestmentsAssetClass } {
+  type Vote = { count: number; fromHoldings: boolean };
+  const nameVotes = new Map<string, Vote>();
+  const castVote = (name: string, fromHoldings: boolean) => {
+    const v = nameVotes.get(name);
+    if (v) {
+      v.count += 1;
+      v.fromHoldings = v.fromHoldings || fromHoldings;
+    } else {
+      nameVotes.set(name, { count: 1, fromHoldings });
+    }
+  };
+  for (const h of holdingsForIsin) castVote(h.name, true);
+  for (const t of tradesForIsin) castVote(t.name, false);
+
+  let bestName: string | null = null;
+  let best: Vote | null = null;
+  for (const [name, v] of nameVotes) {
+    const better =
+      !best ||
+      v.count > best.count ||
+      (v.count === best.count && v.fromHoldings && !best.fromHoldings);
+    if (better) {
+      bestName = name;
+      best = v;
+    }
+  }
+
+  // symbol/assetClass: same Holdings-first preference, but no voting needed
+  // (symbol is frequently null; assetClass is a small enum) — just prefer
+  // whichever Holdings row provided one, falling back to any Trade Book row.
+  const symbol =
+    holdingsForIsin.find((h) => h.symbol)?.symbol ?? tradesForIsin.find((t) => t.symbol)?.symbol ?? null;
+  const assetClass =
+    holdingsForIsin[0]?.assetClass ?? tradesForIsin[0]?.assetClass ?? "OTHER";
+
+  return { name: bestName ?? isin, symbol, assetClass };
+}
+
 // ── Main async pipeline ───────────────────────────────────────────────────────
 
 export async function processInvestmentsUpload(
@@ -194,15 +271,21 @@ export async function processInvestmentsUpload(
     const allIsins = new Set<string>([...holdingsByIsin.keys(), ...tradesByIsin.keys()]);
 
     // ── Resolve (idempotent) asset + account_asset rows for every ISIN ──────
+    // Name/symbol/assetClass come from resolveAssetIdentity's majority vote
+    // across EVERY raw Holdings + Trade Book row for this ISIN (not just one
+    // of each) — see its doc-comment for why a single LLM-hallucinated row
+    // must not be allowed to set the name.
+    const holdingsRawByIsin = groupByIsin(holdingsRaw);
+    const tradeEntriesByIsin = groupByIsin(tradeEntries);
     const isinToAccountAssetId = new Map<string, bigint>();
     const isinToAssetName = new Map<string, string>();
 
     for (const isin of allIsins) {
-      const tradeMeta = tradesByIsin.get(isin);
-      const holdingsMeta = holdingsByIsin.get(isin);
-      const name = tradeMeta?.name || holdingsMeta?.name || isin;
-      const symbol = tradeMeta?.symbol ?? holdingsMeta?.symbol ?? null;
-      const assetClass: InvestmentsAssetClass = tradeMeta?.assetClass ?? holdingsMeta?.assetClass ?? "OTHER";
+      const { name, symbol, assetClass } = resolveAssetIdentity(
+        holdingsRawByIsin.get(isin) ?? [],
+        tradeEntriesByIsin.get(isin) ?? [],
+        isin
+      );
 
       const asset = await assetRepo.findOrCreateAssetByIsin(pool, {
         isin,

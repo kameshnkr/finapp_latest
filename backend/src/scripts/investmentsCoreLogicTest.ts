@@ -35,6 +35,8 @@ import { listAccounts } from "../services/investmentsAccountService.js";
 import { createPot, updatePot } from "../services/investmentsPotService.js";
 import { listTradesPaged } from "../services/investmentsTradeQueryService.js";
 import { computeReconciliationDummyFingerprint } from "../utils/investmentsFingerprint.js";
+import { resolveAssetIdentity } from "../services/investmentsUploadProcessingService.js";
+import type { RawHoldingEntry, RawTradeEntry } from "../services/investmentsLlmParsingService.js";
 import { HttpError } from "../utils/errors.js";
 
 const RUN_TAG = Date.now().toString(36);
@@ -594,6 +596,74 @@ async function main(): Promise<void> {
     reconInLabeled?.source,
     "RECONCILIATION"
   );
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // 9. Asset name/symbol/assetClass resolution across Holdings + Trade Book
+  //    rows for the same ISIN — a majority vote (Holdings-tie-break) that
+  //    must not let one LLM-hallucinated row's "name" win. Pure function,
+  //    no DB needed. Regression test for a real production bug: a Trade
+  //    Book row with correct ISIN/units/price for "SBI GOLD FUND" came back
+  //    from the LLM with name "HDFC Flexi Cap Fund" (a fund absent from
+  //    both uploaded files entirely).
+  // ═══════════════════════════════════════════════════════════════════════
+  console.log("\n9. Asset identity resolution (Holdings vs Trade Book name hallucination)");
+
+  const mkHolding = (name: string, units = 1): RawHoldingEntry => ({
+    isin: "ISIN9",
+    name,
+    symbol: null,
+    assetClass: "MUTUAL_FUND",
+    units,
+    price: null,
+    priceDate: null,
+  });
+  const mkTrade = (name: string): RawTradeEntry => ({
+    isin: "ISIN9",
+    name,
+    symbol: null,
+    assetClass: "MUTUAL_FUND",
+    transactionType: "BUY",
+    units: 1,
+    price: 1,
+    amount: 1,
+    transactionDate: "2026-01-01",
+    transactionTime: null,
+    tradeId: null,
+    orderId: null,
+  });
+
+  // 9a. The exact production scenario: Holdings reports the correct name
+  // twice (e.g. a per-asset-class sheet + a "Combined" rollup both showing
+  // it), one single Trade Book row hallucinates a different name entirely.
+  // Holdings' 2 votes must beat the Trade Book's 1 vote.
+  const r9a = resolveAssetIdentity(
+    [mkHolding("SBI GOLD FUND - DIRECT PLAN"), mkHolding("SBI GOLD FUND - DIRECT PLAN")],
+    [mkTrade("HDFC Flexi Cap Fund")],
+    "ISIN9"
+  );
+  assertEqual("9a. Holdings' 2 votes beat Trade Book's 1 hallucinated vote", r9a.name, "SBI GOLD FUND - DIRECT PLAN");
+
+  // 9b. Even a single Holdings row (1 vote) vs a single Trade Book row (1
+  // vote) — an exact tie — must still prefer Holdings, since it's the
+  // authoritative "what you currently hold" statement.
+  const r9b = resolveAssetIdentity([mkHolding("Correct Fund Name")], [mkTrade("Wrong Fund Name")], "ISIN9");
+  assertEqual("9b. 1-vs-1 tie is broken in favour of Holdings", r9b.name, "Correct Fund Name");
+
+  // 9c. An ISIN that only ever appears in the Trade Book (e.g. fully sold
+  // out, so it's absent from current Holdings) must still resolve to
+  // whatever Trade Book reports — there's no Holdings vote to fall back to.
+  const r9c = resolveAssetIdentity([], [mkTrade("Only In Trades Fund")], "ISIN9");
+  assertEqual("9c. Trade-Book-only ISIN (no Holdings row) still resolves", r9c.name, "Only In Trades Fund");
+
+  // 9d. Multiple Trade Book rows agreeing with each other (majority) should
+  // beat a single disagreeing Holdings row too — the vote is symmetric, not
+  // a hard Holdings-always-wins rule, only a tie-break preference.
+  const r9d = resolveAssetIdentity(
+    [mkHolding("Stale Holdings Name")],
+    [mkTrade("Agreed Name"), mkTrade("Agreed Name"), mkTrade("Agreed Name")],
+    "ISIN9"
+  );
+  assertEqual("9d. 3 agreeing Trade Book votes beat 1 Holdings vote", r9d.name, "Agreed Name");
 
   // ── Summary ────────────────────────────────────────────────────────────
   console.log(`\n\u2500\u2500 ${pass} passed, ${fail} failed \u2500\u2500\n`);

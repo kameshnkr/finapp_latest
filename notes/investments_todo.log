@@ -1,5 +1,6 @@
 [] How is it showing asset wise amounts in the assets page? before labeling the trades (i means what is the source of the data)
-[] From where that HDFC FLEXI CAP fund came, its not present in holdings or trades file, may be llm halusinated (kamesh5.nkr@gmail.com)
+[x] From where that HDFC FLEXI CAP fund came, its not present in holdings or trades file, may be llm halusinated (kamesh5.nkr@gmail.com)
 [x] Add new pot option is missing and edit already created pot names and description is also missing.
 [x] For reconcil trades, it should have a note or indicator that indicates those trades are created for reconcil purpose and not the actual trades.
 [x] Fix the total portfolio card (minimise it) may be it will get minimised when add new pot option added at top right.
+
