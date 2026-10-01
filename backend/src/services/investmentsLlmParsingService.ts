@@ -76,6 +76,67 @@ function toStringOrNull(v: unknown): string | null {
   return s === "" ? null : s;
 }
 
+// ── Hallucination safety net for the free-text "name" field ──────────────────
+//
+// isin/units/price are structured, low-entropy fields the LLM rarely gets
+// wrong. "name" is free text, and has been observed in production to be
+// fabricated on an otherwise-perfectly-extracted row (e.g. a row with the
+// correct ISIN/units/price for "SBI GOLD FUND" came back with name
+// "HDFC Flexi Cap Fund" — a string absent from the uploaded file entirely).
+// Since `investments_assets.name` is global (keyed by ISIN, shared across
+// users), a single bad name can silently corrupt it. This is a lightweight,
+// no-network safety net: after parsing, check whether the returned name
+// plausibly came FROM the raw rows that were actually sent to the LLM for
+// this batch; if not, don't trust it.
+
+/**
+ * Returns true if `name` plausibly originates from `rawRows` (the exact
+ * batch of spreadsheet rows sent to the LLM for this extraction call).
+ * Deliberately lenient and batch-scoped rather than pinned to one row index:
+ * the LLM may skip header/subtotal rows, so parsed-row-index-to-raw-row-index
+ * alignment isn't guaranteed even though order is generally preserved.
+ */
+export function nameAppearsInRawRows(name: string, rawRows: string[][]): boolean {
+  const normalized = name.trim().toLowerCase();
+  if (!normalized) return false;
+
+  const haystack = rawRows.flat().join(" | ").toLowerCase();
+  if (haystack.includes(normalized)) return true;
+
+  // Fallback: at least half of the name's significant (3+ char) words show
+  // up somewhere in the batch — tolerates minor LLM normalization (e.g.
+  // "SBI GOLD FUND - DIRECT PLAN" vs a cell reading "SBI Gold Fund-Direct").
+  const words = normalized.split(/\s+/).filter((w) => w.length >= 3);
+  if (words.length === 0) return false;
+  const matched = words.filter((w) => haystack.includes(w)).length;
+  return matched / words.length >= 0.5;
+}
+
+/**
+ * Replaces any entry's `name` with its `isin` (a safe, never-wrong
+ * placeholder, consistent with the existing `name ?? isin` fallback already
+ * used when the LLM omits a name outright) whenever that name doesn't
+ * plausibly appear in the raw rows it was extracted from. Silent to the
+ * caller/user — never throws, never blocks the upload — just logs a warning
+ * server-side for visibility. Downstream, resolveAssetIdentity's
+ * majority-vote still picks the best available name across all sources, so
+ * this only matters when EVERY source for an ISIN turns out suspect.
+ */
+function sanitizeHallucinatedNames<T extends { isin: string; name: string }>(
+  entries: T[],
+  rawRows: string[][],
+  label: string
+): T[] {
+  return entries.map((e) => {
+    if (nameAppearsInRawRows(e.name, rawRows)) return e;
+    console.warn(
+      `[investments][${label}] extracted name "${e.name}" for ISIN ${e.isin} does not appear in its source ` +
+        `rows (likely LLM hallucination) — falling back to the ISIN as a safe placeholder name.`
+    );
+    return { ...e, name: e.isin };
+  });
+}
+
 // ── Holdings parsing ──────────────────────────────────────────────────────────
 
 const HOLDINGS_SCHEMA_INSTRUCTIONS = `Return ONLY a single-line valid JSON array. No markdown, no code fences, no explanation, no newlines anywhere in the output.
@@ -84,6 +145,7 @@ Each element must have exactly these fields:
 
 Rules:
 - isin: the ISIN code identifying the asset. If a row has no discoverable ISIN, OMIT that row entirely from the output — never invent one.
+- name: copy the fund/company/scheme name EXACTLY as it appears in that row's own cells (or the nearest clearly-associated cell). Never substitute, translate, or guess a different name you are not reading directly from the row. If no name text is present for a row, use that row's ISIN as the name instead of inventing one.
 - units: the current quantity/units held, as a plain number (strip commas, currency symbols, unit suffixes).
 - price: the latest NAV/price shown for this holding in this statement, if present; null otherwise.
 - asset_class: MUTUAL_FUND for mutual fund schemes, STOCK for listed equity shares, ETF for exchange-traded funds, OTHER if unclear.
@@ -112,12 +174,13 @@ export async function parseHoldingsFile(buffer: Buffer, jobId: string): Promise<
       const raw = await callLlm(prompt, label);
       const parsedRows = parseJsonArray(raw, label);
 
+      const batchEntries: RawHoldingEntry[] = [];
       for (const row of parsedRows) {
         const isin = toStringOrNull(row["isin"])?.toUpperCase();
         if (!isin) continue;
         const units = toNumber(row["units"]);
         if (!Number.isFinite(units)) continue;
-        results.push({
+        batchEntries.push({
           isin,
           name: toStringOrNull(row["name"]) ?? isin,
           symbol: toStringOrNull(row["symbol"]),
@@ -127,6 +190,7 @@ export async function parseHoldingsFile(buffer: Buffer, jobId: string): Promise<
           priceDate: toStringOrNull(row["price_date"]),
         });
       }
+      results.push(...sanitizeHallucinatedNames(batchEntries, batch, label));
       rowOffset += batch.length;
     }
   }
@@ -142,6 +206,7 @@ Each element must have exactly these fields:
 
 Rules:
 - isin: the ISIN code identifying the traded asset. If a row has no discoverable ISIN (e.g. it is a charge/tax/fee ledger line, not an actual trade), OMIT that row entirely — never invent one.
+- name: copy the fund/company/scheme name EXACTLY as it appears in that row's own cells (or the nearest clearly-associated cell). Never substitute, translate, or guess a different name you are not reading directly from the row. If no name text is present for a row, use that row's ISIN as the name instead of inventing one.
 - transaction_type: exactly "BUY" or "SELL" — infer from buy/sell/purchase/redeem/credit/debit-style columns as appropriate for a trade book.
 - units, price, amount: plain numbers (strip commas/currency symbols). amount should approximately equal units x price (brokerage/charges may cause small differences) — extract exactly what the statement shows, do not compute it yourself.
 - transaction_date: prefer the trade EXECUTION date if a separate execution timestamp column exists; otherwise use the trade date column. Format YYYY-MM-DD.
@@ -249,7 +314,7 @@ export async function parseTradeBookFile(
         continue;
       }
 
-      allEntries.push(...entries);
+      allEntries.push(...sanitizeHallucinatedNames(entries, batch, label));
     }
   }
 

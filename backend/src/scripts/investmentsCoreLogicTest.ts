@@ -36,6 +36,7 @@ import { createPot, updatePot } from "../services/investmentsPotService.js";
 import { listTradesPaged } from "../services/investmentsTradeQueryService.js";
 import { computeReconciliationDummyFingerprint } from "../utils/investmentsFingerprint.js";
 import { resolveAssetIdentity } from "../services/investmentsUploadProcessingService.js";
+import { nameAppearsInRawRows } from "../services/investmentsLlmParsingService.js";
 import type { RawHoldingEntry, RawTradeEntry } from "../services/investmentsLlmParsingService.js";
 import { HttpError } from "../utils/errors.js";
 
@@ -664,6 +665,53 @@ async function main(): Promise<void> {
     "ISIN9"
   );
   assertEqual("9d. 3 agreeing Trade Book votes beat 1 Holdings vote", r9d.name, "Agreed Name");
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // 10. nameAppearsInRawRows — the text-overlap safety net that flags a
+  //     name as likely-hallucinated when it doesn't plausibly originate from
+  //     the raw spreadsheet rows the LLM was given. Pure function, no DB/LLM
+  //     needed. Uses the real production rows (lightly trimmed) from the
+  //     "SBI GOLD FUND" / "HDFC Flexi Cap Fund" incident.
+  // ═══════════════════════════════════════════════════════════════════════
+  console.log("\n10. nameAppearsInRawRows (hallucinated-name safety net)");
+
+  const sbiTradeBookRow: string[][] = [
+    ["Symbol", "ISIN", "Trade Date", "Exchange", "Segment", "Series", "Trade Type", "Auto", "Quantity", "Price"],
+    [
+      "SBI GOLD FUND - DIRECT PLAN - GROWTH",
+      "INF200K01RP8",
+      "2026-07-03",
+      "BSE",
+      "MF",
+      "",
+      "buy",
+      "FALSE",
+      "174.267",
+      "44.4697",
+    ],
+  ];
+
+  assertEqual(
+    "10a. the real (correct) name is found in its own raw rows",
+    nameAppearsInRawRows("SBI GOLD FUND - DIRECT PLAN - GROWTH", sbiTradeBookRow),
+    true
+  );
+  assertEqual(
+    "10b. a holdings-file name close enough to the trade-book name (shared significant words) still matches",
+    nameAppearsInRawRows("SBI GOLD FUND - DIRECT PLAN", sbiTradeBookRow),
+    true
+  );
+  assertEqual(
+    "10c. the actual hallucinated name from production is correctly flagged as NOT present",
+    nameAppearsInRawRows("HDFC Flexi Cap Fund", sbiTradeBookRow),
+    false
+  );
+  assertEqual("10d. an empty name is never considered present", nameAppearsInRawRows("", sbiTradeBookRow), false);
+  assertEqual(
+    "10e. the ISIN-as-fallback-name case (name == isin) is always found (ISIN is itself a raw cell)",
+    nameAppearsInRawRows("INF200K01RP8", sbiTradeBookRow),
+    true
+  );
 
   // ── Summary ────────────────────────────────────────────────────────────
   console.log(`\n\u2500\u2500 ${pass} passed, ${fail} failed \u2500\u2500\n`);
