@@ -7,6 +7,7 @@ class InvestmentsPotDto {
     required this.id,
     required this.name,
     required this.description,
+    required this.iconKey,
     required this.currentValue,
     required this.version,
   });
@@ -14,6 +15,10 @@ class InvestmentsPotDto {
   final String id;
   final String name;
   final String? description;
+  /// Lookup key into kInvestmentsPotIcons (pot_icons.dart) — never render
+  /// this directly, always resolve via resolvePotIcon() which falls back
+  /// safely for any unknown key.
+  final String iconKey;
   final String currentValue;
   /// Needed for the optimistic-concurrency edit call (see
   /// InvestmentsController.updatePot).
@@ -28,6 +33,7 @@ class InvestmentsPotDto {
         id: j['id'] as String,
         name: j['name'] as String,
         description: j['description'] as String?,
+        iconKey: j['iconKey'] as String? ?? 'savings',
         currentValue: j['currentValue'] as String? ?? '0.00',
         version: (j['version'] as num?)?.toInt() ?? 1,
       );

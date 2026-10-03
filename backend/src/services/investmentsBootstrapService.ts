@@ -2,14 +2,19 @@ import { pool } from "../db/pool.js";
 import * as potRepo from "../repositories/investmentsPotRepository.js";
 import * as accountRepo from "../repositories/investmentsAccountRepository.js";
 
-const DEFAULT_POTS: { name: string; description: string }[] = [
-  { name: "Retirement", description: "Long-term wealth for retirement." },
-  { name: "Child Education", description: "Savings for future child education." },
+const DEFAULT_POTS: { name: string; description: string; iconKey: string }[] = [
+  { name: "Retirement", description: "Long-term wealth for retirement.", iconKey: "retirement" },
+  {
+    name: "Child Education",
+    description: "Savings for future child education.",
+    iconKey: "school",
+  },
   {
     name: "Savings - Real Estate Purchase",
     description: "Savings for a future real estate purchase.",
+    iconKey: "real_estate",
   },
-  { name: "General", description: "General-purpose investments." },
+  { name: "General", description: "General-purpose investments.", iconKey: "savings" },
 ];
 
 const DEFAULT_ACCOUNT_NAMES: string[] = ["My Demat Account 1", "My Demat Account 2"];
@@ -41,7 +46,7 @@ export async function ensureDefaultInvestmentsDataForUser(userId: bigint): Promi
     // conflict-safe on their own, not just gated by the earlier count check.
     if (potCount === 0) {
       for (const p of DEFAULT_POTS) {
-        await potRepo.insertPotIfNotExists(client, userId, p.name, p.description);
+        await potRepo.insertPotIfNotExists(client, userId, p.name, p.description, p.iconKey);
       }
     }
 
