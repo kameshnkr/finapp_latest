@@ -15,6 +15,7 @@ function serialize(p: InvestmentsPotRow) {
     id: p.id.toString(),
     name: p.name,
     description: p.description,
+    iconKey: p.icon_key,
     status: p.status,
     version: p.version,
     createdAt: p.created_at.toISOString(),
@@ -22,9 +23,14 @@ function serialize(p: InvestmentsPotRow) {
   };
 }
 
-export async function createPot(userId: bigint, name: string, description: string | null) {
+export async function createPot(
+  userId: bigint,
+  name: string,
+  description: string | null,
+  iconKey: string
+) {
   try {
-    const row = await potRepo.insertPot(pool, userId, name, description);
+    const row = await potRepo.insertPot(pool, userId, name, description, iconKey);
     return serialize(row);
   } catch (e: unknown) {
     if ((e as { code?: string })?.code === "23505") {
@@ -39,6 +45,7 @@ export async function updatePot(
   potId: bigint,
   name: string,
   description: string | null,
+  iconKey: string,
   version: number
 ) {
   const existing = await potRepo.getPotForUser(pool, userId, potId);
@@ -46,7 +53,7 @@ export async function updatePot(
   if (existing.version !== version) throw new HttpError(409, "Version conflict");
 
   try {
-    const row = await potRepo.updatePot(pool, userId, potId, name, description, version);
+    const row = await potRepo.updatePot(pool, userId, potId, name, description, iconKey, version);
     if (!row) throw new HttpError(409, "Version conflict");
     return serialize(row);
   } catch (e: unknown) {

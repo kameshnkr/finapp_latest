@@ -108,27 +108,36 @@ class InvestmentsController extends ChangeNotifier {
 
   /// Throws on failure (e.g. duplicate name) — the create sheet catches and
   /// shows an inline error, mirroring createAccount.
-  Future<void> createPot({required String name, String? description}) async {
-    await _api.createPot(name: name, description: description);
+  Future<void> createPot({
+    required String name,
+    String? description,
+    String? iconKey,
+  }) async {
+    await _api.createPot(name: name, description: description, iconKey: iconKey);
     await _quietRefresh();
+  }
+
+  InvestmentsPotDto _requirePotLocally(String potId) {
+    for (final p in portfolio?.pots ?? const <InvestmentsPotDto>[]) {
+      if (p.id == potId) return p;
+    }
+    throw StateError('Pot not found locally — refresh and try again.');
   }
 
   Future<void> updatePot({
     required String potId,
     required String name,
     String? description,
+    required String iconKey,
   }) async {
-    InvestmentsPotDto? existing;
-    for (final p in portfolio?.pots ?? const <InvestmentsPotDto>[]) {
-      if (p.id == potId) {
-        existing = p;
-        break;
-      }
-    }
-    if (existing == null) {
-      throw StateError('Pot not found locally — refresh and try again.');
-    }
-    await _api.updatePot(potId: potId, name: name, description: description, version: existing.version);
+    final existing = _requirePotLocally(potId);
+    await _api.updatePot(
+      potId: potId,
+      name: name,
+      description: description,
+      iconKey: iconKey,
+      version: existing.version,
+    );
     await _quietRefresh();
   }
 

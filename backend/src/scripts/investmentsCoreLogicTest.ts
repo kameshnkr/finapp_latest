@@ -128,8 +128,8 @@ async function main(): Promise<void> {
   // getAssetsGroupedByAccount) — that bootstrap only fills in whichever of
   // Pots/Accounts is currently empty, so seeding both ourselves first means
   // no default rows are ever created to interfere with this test's numbers.
-  const potA = await potRepo.insertPot(pool, owner.id, "TestPotA", null);
-  const potB = await potRepo.insertPot(pool, owner.id, "TestPotB", null);
+  const potA = await potRepo.insertPot(pool, owner.id, "TestPotA", null, "savings");
+  const potB = await potRepo.insertPot(pool, owner.id, "TestPotB", null, "savings");
   const ownerAccount = await accountRepo.insertAccount(pool, owner.id, "Test Account", null);
 
   const asset = await assetRepo.findOrCreateAssetByIsin(pool, {
@@ -497,14 +497,15 @@ async function main(): Promise<void> {
   // ═══════════════════════════════════════════════════════════════════════
   console.log("\n7. Pot CRUD (create/edit)");
 
-  const newPot = await createPot(owner.id, "Vacation Fund", "Trip savings");
+  const newPot = await createPot(owner.id, "Vacation Fund", "Trip savings", "travel");
   assertEqual("7a. createPot: name", newPot.name, "Vacation Fund");
   assertEqual("7a. createPot: description", newPot.description, "Trip savings");
+  assertEqual("7a. createPot: iconKey", newPot.iconKey, "travel");
   assertEqual("7a. createPot: starts at version 1", newPot.version, 1);
 
   await assertThrowsHttp(
     "7b. createPot rejects a duplicate name for the same user",
-    () => createPot(owner.id, "Vacation Fund", null),
+    () => createPot(owner.id, "Vacation Fund", null, "travel"),
     409,
     "already exists"
   );
@@ -514,29 +515,31 @@ async function main(): Promise<void> {
     BigInt(newPot.id),
     "Vacation Fund 2026",
     "Updated description",
+    "beach",
     newPot.version
   );
   assertEqual("7c. updatePot: name changed", editedPot.name, "Vacation Fund 2026");
   assertEqual("7c. updatePot: description changed", editedPot.description, "Updated description");
+  assertEqual("7c. updatePot: iconKey changed", editedPot.iconKey, "beach");
   assertEqual("7c. updatePot: version incremented", editedPot.version, newPot.version + 1);
 
   await assertThrowsHttp(
     "7d. updatePot rejects a stale version (optimistic concurrency)",
-    () => updatePot(owner.id, BigInt(newPot.id), "Another Name", null, newPot.version /* stale */),
+    () => updatePot(owner.id, BigInt(newPot.id), "Another Name", null, "beach", newPot.version /* stale */),
     409,
     "Version conflict"
   );
 
   await assertThrowsHttp(
     "7e. otherUser cannot edit owner's Pot (404, not found for them)",
-    () => updatePot(other.id, BigInt(newPot.id), "Hijacked", null, editedPot.version),
+    () => updatePot(other.id, BigInt(newPot.id), "Hijacked", null, "beach", editedPot.version),
     404,
     "Pot not found"
   );
 
   await assertThrowsHttp(
     "7f. updatePot rejects renaming to a name that collides with another of the user's Pots",
-    () => updatePot(owner.id, BigInt(newPot.id), potA.name, null, editedPot.version),
+    () => updatePot(owner.id, BigInt(newPot.id), potA.name, null, "beach", editedPot.version),
     409,
     "already exists"
   );
