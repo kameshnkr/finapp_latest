@@ -18,27 +18,31 @@ class InvestmentsApi {
     return InvestmentsPortfolioDto.fromJson(j);
   }
 
-  /// POST /api/investments/pots/ — name required, description optional.
+  /// POST /api/investments/pots/ — name required, description + iconKey
+  /// optional (server defaults iconKey to 'savings' when omitted).
   Future<InvestmentsPotDto> createPot({
     required String name,
     String? description,
+    String? iconKey,
   }) async {
     final j = await _client.postJson('/api/investments/pots/', body: {
       'name': name,
       if (description != null && description.isNotEmpty) 'description': description,
+      if (iconKey != null) 'iconKey': iconKey,
     }) as Map<String, dynamic>;
     return InvestmentsPotDto.fromJson(j['pot'] as Map<String, dynamic>);
   }
 
-  /// PATCH /api/investments/pots/:id — name + description together
-  /// (optimistic concurrency via [version]). Sends description explicitly
-  /// (even when clearing it) — omitting the field would be interpreted the
-  /// same as clearing it server-side, so the caller must always pass the
-  /// intended final value.
+  /// PATCH /api/investments/pots/:id — name + description + iconKey
+  /// together (optimistic concurrency via [version]). Sends description and
+  /// iconKey explicitly (even when clearing description) — omitting either
+  /// field would be interpreted as clearing/defaulting it server-side, so
+  /// the caller must always pass the intended final value for both.
   Future<InvestmentsPotDto> updatePot({
     required String potId,
     required String name,
     String? description,
+    required String iconKey,
     required int version,
   }) async {
     final j = await _client.patchJson(
@@ -46,6 +50,7 @@ class InvestmentsApi {
       body: {
         'name': name,
         if (description != null && description.isNotEmpty) 'description': description,
+        'iconKey': iconKey,
         'version': version,
       },
     ) as Map<String, dynamic>;

@@ -3,15 +3,22 @@ import { z } from "zod";
 import type { AuthedRequest } from "../middleware/authMiddleware.js";
 import * as portfolioService from "../services/investmentsPortfolioService.js";
 import * as potService from "../services/investmentsPotService.js";
+import { DEFAULT_POT_ICON_KEY, isValidPotIconKey } from "../constants/investmentsPotIcons.js";
+
+const iconKeySchema = z
+  .string()
+  .refine(isValidPotIconKey, { message: "Unknown icon" });
 
 const createSchema = z.object({
   name: z.string().min(1).max(120),
   description: z.string().max(500).optional(),
+  iconKey: iconKeySchema.optional(),
 });
 
 const updateSchema = z.object({
   name: z.string().min(1).max(120),
   description: z.string().max(500).optional(),
+  iconKey: iconKeySchema,
   version: z.number().int().positive(),
 });
 
@@ -22,7 +29,12 @@ export async function list(req: AuthedRequest, res: Response): Promise<void> {
 
 export async function create(req: AuthedRequest, res: Response): Promise<void> {
   const body = createSchema.parse(req.body);
-  const pot = await potService.createPot(req.userId, body.name, body.description ?? null);
+  const pot = await potService.createPot(
+    req.userId,
+    body.name,
+    body.description ?? null,
+    body.iconKey ?? DEFAULT_POT_ICON_KEY
+  );
   res.status(201).json({ pot });
 }
 
@@ -34,6 +46,7 @@ export async function update(req: AuthedRequest, res: Response): Promise<void> {
     potId,
     body.name,
     body.description ?? null,
+    body.iconKey,
     body.version
   );
   res.json({ pot });

@@ -8,13 +8,14 @@ export type InvestmentsPotRow = {
   user_id: bigint;
   name: string;
   description: string | null;
+  icon_key: string;
   status: string;
   version: number;
   created_at: Date;
   updated_at: Date;
 };
 
-const POT_COLS = "id, user_id, name, description, status, version, created_at, updated_at";
+const POT_COLS = "id, user_id, name, description, icon_key, status, version, created_at, updated_at";
 
 export async function countPotsForUser(db: Db, userId: bigint): Promise<number> {
   const r = await db.query<{ c: string }>(
@@ -74,14 +75,15 @@ export async function updatePot(
   potId: bigint,
   name: string,
   description: string | null,
+  iconKey: string,
   version: number
 ): Promise<InvestmentsPotRow | null> {
   const r = await client.query<InvestmentsPotRow>(
     `UPDATE investments_pots
-     SET name = $1, description = $2, version = version + 1, updated_at = now()
-     WHERE id = $3 AND user_id = $4 AND version = $5
+     SET name = $1, description = $2, icon_key = $3, version = version + 1, updated_at = now()
+     WHERE id = $4 AND user_id = $5 AND version = $6
      RETURNING ${POT_COLS}`,
-    [name, description, potId, userId, version]
+    [name, description, iconKey, potId, userId, version]
   );
   return r.rows[0] ?? null;
 }
@@ -90,14 +92,15 @@ export async function insertPot(
   client: Db,
   userId: bigint,
   name: string,
-  description: string | null
+  description: string | null,
+  iconKey: string
 ): Promise<InvestmentsPotRow> {
   const id = nextId();
   const r = await client.query<InvestmentsPotRow>(
-    `INSERT INTO investments_pots (id, user_id, name, description)
-     VALUES ($1, $2, $3, $4)
+    `INSERT INTO investments_pots (id, user_id, name, description, icon_key)
+     VALUES ($1, $2, $3, $4, $5)
      RETURNING ${POT_COLS}`,
-    [id, userId, name, description]
+    [id, userId, name, description, iconKey]
   );
   return r.rows[0]!;
 }
@@ -116,13 +119,14 @@ export async function insertPotIfNotExists(
   client: Db,
   userId: bigint,
   name: string,
-  description: string | null
+  description: string | null,
+  iconKey: string
 ): Promise<void> {
   const id = nextId();
   await client.query(
-    `INSERT INTO investments_pots (id, user_id, name, description)
-     VALUES ($1, $2, $3, $4)
+    `INSERT INTO investments_pots (id, user_id, name, description, icon_key)
+     VALUES ($1, $2, $3, $4, $5)
      ON CONFLICT (user_id, name) DO NOTHING`,
-    [id, userId, name, description]
+    [id, userId, name, description, iconKey]
   );
 }

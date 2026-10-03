@@ -7,6 +7,7 @@ import '../../state/investments_controller.dart';
 import '../../utils/amount_formatter.dart';
 import '../widgets/expandable_name_text.dart';
 import 'investments_pot_sheets.dart';
+import 'pot_icons.dart';
 
 /// Pots tab — primary Investments view. Answers "how much money do I
 /// currently have allocated toward each goal?". Deliberately shows ONLY
@@ -193,7 +194,7 @@ class _PotCardState extends State<_PotCard> {
                   borderRadius: BorderRadius.circular(10),
                 ),
                 alignment: Alignment.center,
-                child: Icon(Icons.savings_rounded, size: 19, color: cs.primary),
+                child: Icon(resolvePotIcon(pot.iconKey), size: 19, color: cs.primary),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -222,6 +223,7 @@ class _PotCardState extends State<_PotCard> {
                             potId: pot.id,
                             currentName: pot.name,
                             currentDescription: pot.description,
+                            currentIconKey: pot.iconKey,
                           ),
                           borderRadius: BorderRadius.circular(6),
                           child: Padding(
