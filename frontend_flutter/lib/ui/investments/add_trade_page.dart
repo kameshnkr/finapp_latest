@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../../core/app_theme.dart';
 import '../../data/models/investments_models.dart';
 import '../../state/investments_controller.dart';
+import 'investments_upload_help_page.dart';
 
 /// Add Trade — select an Investment Account, upload the two mandatory
 /// files (Holdings Statement + Trade Book), then poll the async
@@ -349,13 +350,29 @@ class _AddTradePageState extends State<AddTradePage> with SingleTickerProviderSt
                   ),
                 )),
           const SizedBox(height: 24),
-          Text(
-            'Upload Files',
-            style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                  color: cs.onSurfaceVariant,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.5,
+          Row(
+            children: [
+              Text(
+                'Upload Files',
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      color: cs.onSurfaceVariant,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.5,
+                    ),
+              ),
+              const SizedBox(width: 6),
+              IconButton(
+                onPressed: () => Navigator.of(context).push<void>(
+                  MaterialPageRoute<void>(builder: (_) => const InvestmentsUploadHelpPage()),
                 ),
+                icon: const Icon(Icons.help_outline_rounded, size: 19),
+                tooltip: 'How to download your Holdings & Trade Book files',
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                style: IconButton.styleFrom(foregroundColor: cs.primary),
+              ),
+            ],
           ),
           const SizedBox(height: 10),
           _FilePickTile(
