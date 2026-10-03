@@ -1,0 +1,194 @@
+<DataModels>
+
+    investments_assets
+    ────────────────────────────────
+    id
+    asset_class
+    isin
+    name
+    symbol
+    amfi_scheme_code BIGINT NULL
+    status
+    version
+
+    UNIQUE (isin)
+    UNIQUE (amfi_scheme_code)
+
+
+    investments_asset_price_history
+    ────────────────────────────────
+    id
+    asset_id
+    price
+    price_date
+    source
+    synced_at
+    version
+
+    FOREIGN KEY (asset_id) → investments_assets(id)
+
+
+    investments_asset_latest_prices
+    ────────────────────────────────
+    id
+    asset_id
+    price
+    price_date
+    source
+    synced_at
+    next_price_sync_after
+    version
+
+    UNIQUE (asset_id)
+    FOREIGN KEY (asset_id) → investments_assets(id)
+
+
+    investment_pots
+    ────────────────────────────────
+    id
+    user_id
+    name
+    status
+    version
+
+    UNIQUE(user_id, name)
+    FOREIGN KEY (user_id) → users(id)
+
+
+    investment_accounts
+    ────────────────────────────────
+    id
+    user_id
+    name
+    account_identifier
+    broker_name
+    status
+    version
+
+    account_identifier is nullable initially.
+
+    broker_name is nullable initially.
+
+    UNIQUE(user_id, account_identifier)
+    UNIQUE(user_id, name)
+
+    FOREIGN KEY (user_id) → users(id)
+
+
+    investment_account_assets
+    ────────────────────────────────
+    id
+    user_id
+    account_id
+    asset_id
+    status
+    version
+
+    UNIQUE(user_id, account_id, asset_id)
+
+    FOREIGN KEY (account_id) → investment_accounts(id)
+    FOREIGN KEY (asset_id) → investments_assets(id)
+    FOREIGN KEY (user_id) → users(id)
+
+
+    investment_transactions
+    ────────────────────────────────
+    id
+    user_id
+    account_asset_id
+
+    transaction_type       -- BUY / SELL
+    units
+    price
+    amount (here we can add amount as a transaction is already happened event and units and price at which they were bought/sold will not change)
+
+    transaction_date
+
+    source                   -- STATEMENT / MANUAL
+    source_reference_id     -- Broker/source transaction ID, nullable, add if available
+    fingerprint
+
+    allocation_status        -- UNALLOCATED / ALLOCATED
+
+    version
+
+    UNIQUE(user_id, fingerprint)
+
+    FOREIGN KEY (account_asset_id) → investment_account_assets(id)
+    FOREIGN KEY (user_id) → users(id)
+
+
+    investment_transaction_pot_allocations
+    ────────────────────────────────
+    id
+    user_id
+    transaction_id
+    pot_id
+
+    allocation_method       -- PERCENTAGE (only single method for now, later we may add other methods like amount, units)
+    allocation_value - 10%, 20%, 30%, etc.
+
+    allocated_units
+
+    version
+
+    UNIQUE(user_id, transaction_id, pot_id)
+
+    FOREIGN KEY (transaction_id) → investment_transactions(id)
+    FOREIGN KEY (pot_id) → investment_pots(id)
+    FOREIGN KEY (user_id) → users(id)
+
+    - Note that we won't save allocated amount in this table because it requires updating all the effected allocation entries when prices refreshed which is not efficient.
+
+    <DerivedReadModels>
+
+        investments_pot_positions
+        ────────────────────────────────
+        id
+        user_id
+        pot_id
+        account_asset_id
+
+        units
+
+        version
+
+        UNIQUE(user_id, pot_id, account_asset_id)
+
+        FOREIGN KEY (pot_id) → investment_pots(id)
+        FOREIGN KEY (account_asset_id) → investment_account_assets(id)
+        FOREIGN KEY (user_id) → users(id)
+
+        - Not that we are not saving current value in this derived positions table as well, it should be computed at the runtime, because even if we save it in positions table, it should be updated when prices refreshed. And we will need to do more volume of updates when we implement silent background refresh job, which requires updating for all the user's positions even user is active or not, instead calculating at the runtime is more efficient.
+    
+
+        investment_positions
+        ────────────────────────────────
+        id
+        user_id
+        account_asset_id
+
+        units
+
+        version
+
+        UNIQUE(user_id, account_asset_id)
+
+        FOREIGN KEY (account_asset_id) → investment_account_assets(id)
+        FOREIGN KEY (user_id) → users(id)
+
+        - Here as well, no current value should be saved.
+
+    </DerivedReadModels>
+
+
+    NOTES:
+
+    - created_at and updated_at are mandatory for all models but omitted above for brevity.
+    - Primary key is always (id) for all tables.
+    - Use the "investments_" prefix for all Investment-specific tables consistently.
+    - Preserve the project's existing naming conventions if the existing codebase uses a slightly different but established convention.
+    - Do not introduce redundant tables or fields without a concrete requirement.
+    - We won't save current value or amount no where else other that raw transactions which is immutable already happened event. So whereever current value is required, it should be computed at the runtime by looking at the latest prices of the assets and the untis allocated.
+
+</DataModels>

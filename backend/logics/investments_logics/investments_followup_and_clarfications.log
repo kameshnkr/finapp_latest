@@ -1,0 +1,116 @@
+<Cursor followup questions>
+I now have a solid understanding of the existing Banking implementation (backend job/statement pipeline, allocation/reallocation mechanics, LLM abstraction, dedup/fingerprinting, Flutter nav/state patterns) to properly evaluate this plan. Overall the plan is well-structured and mostly reuses the right patterns, but there are several real gaps/risks worth resolving before implementation starts. I'm not blanket-approving — here's the review.
+
+Verdict: Not yet — solid plan, but 5 issues need a decision before coding starts
+✅ What's genuinely reusable (confirmed against actual code)
+nextId() BigInt PK generation, raw-SQL migration convention (data_model/*.sql + tsx src/scripts/migrate.ts), controller/service/repository split, zod validation, HttpError, AuthedRequest middleware — all directly reusable as described.
+statement_jobs-style job table + polling (UPLOADING→PROCESSING→VALIDATING→SAVING→COMPLETED/FAILED/AWAITING_CONFIRMATION/REJECTED) is a great fit for the Investments upload job.
+callLlm() in llmService.ts is a clean text-in/text-out abstraction — reusable as-is regardless of source file type.
+The "derived aggregate row updated transactionally via delta" pattern (account_budget_allocations + recalcBudgetAggregates) is the right model to mirror for investment_positions / investments_pot_positions.
+⚠️ Issues to resolve before implementation
+1. Asset-level Pot "reallocation" doesn't map cleanly onto Banking's reallocation UX (biggest gap). Banking's budget_reallocation_sheet.dart works because account_budget_allocations.amount is a single mutable aggregate row per (account, budget) — you can freely increase/decrease it. In Investments, the plan states investment_transaction_pot_allocations (per-transaction, percentage-based) is the source of truth, and investments_pot_positions is a derived read model. So when a user does "reallocate this Asset's holding between Pots" at the Account+Asset level (not the single-trade level), which of the potentially many underlying BUY/SELL trades' allocation_value rows actually change? The plan doesn't specify this. Two coherent options:
+
+(a) Asset-level reallocation overwrites the pot-split uniformly across all of that asset's transactions going forward (simple, deterministic, recomputable) — my suggestion.
+(b) Directly edit the aggregate investments_pot_positions.units like Banking does — but this breaks the "positions are derived from transaction-level allocations" invariant and would diverge from source-of-truth on any future recompute.
+This needs an explicit decision before writing the reallocation sheet — "follow existing Banking allocation/reallocation UX as closely as applicable" isn't sufficient guidance here since the underlying data shape is fundamentally different.
+
+2. SELL-trade allocation semantics are undefined. The plan treats every unlabeled trade (BUY or SELL) the same way in the labeling flow (assign % across Pots), but never states: does a SELL's allocation subtract allocated_units from the Pot(s) it's assigned to? What happens if a SELL is allocated to a Pot that doesn't have enough previously-allocated units to cover it (drift from parsing quirks, or an earlier BUY that was never allocated)? This needs a validation rule (e.g. reject/flag if a Pot's resulting position would go negative) — Banking's "budgets can go negative by design" rule shouldn't be assumed to carry over here since negative units in a Pot isn't a meaningful state the way a negative budget is.
+
+3. LLM-parsing structured Excel data is a different risk profile than Banking's PDF-OCR case. Banking uses the LLM because PDF layout/OCR is genuinely ambiguous. Trade Books/Holdings statements are already tabular (rows/columns) — an LLM misreading a single digit in price or amount is a real risk, and critically, the described reconciliation only validates units, not price/amount. A price/amount hallucination on one row would sail through reconciliation undetected since units still tie out. I'd suggest either (a) keeping LLM-only per your instruction but adding a per-row amount ≈ units × price sanity check as an extra guard, or (b) reconsidering deterministic Excel parsing (which is actually easier than Banking's PDF case, since there's no OCR ambiguity — just generic header-name matching). Flagging this as a decision point rather than overriding your explicit instruction to use LLM-only for v1.
+
+4. Reconciliation dummy trade needs a defined price/amount source, and its own fingerprint. investment_transactions.price/amount are presumably NOT NULL. When a per-asset unit mismatch is detected and a dummy reconciliation trade is proposed, what price gets stored on it? (Options: the Holdings file's reported NAV/price for that asset, if present — explicitly not written to investments_asset_latest_prices, just used locally for this row.) Also, unlike Banking's single scalar delta → one dummy transaction, Investments reconciliation is per-asset, so there could be multiple dummy trades in one job — the AWAITING_CONFIRMATION payload shape and confirm/reject controller logic need genuine redesign (array of per-asset mismatches, not Banking's single delta/dummyType), not literal reuse.
+
+5. Bottom-nav wiring needs real changes, not just relabeling. Currently in home_screen.dart, _onNavTap buttons 1 ("Transactions") and 2 ("+") unconditionally push Banking's TransactionsScreen, regardless of the _isBanking switcher (which today only toggles the Home tab's body). To make "Trades" replace "Transactions" for Investments as described, _onNavTap must branch on _isBanking and push an Investments-specific screen instead. Small, but worth calling out explicitly as a required change rather than an "existing structure, just adapt labels" item.
+
+Minor gaps worth a quick decision (not blockers)
+No xlsx/Excel-parsing library exists in backend/package.json today — adding one is a legitimate, minimal new dependency, just flagging it since the guidelines say "avoid unnecessary dependencies" and I want that addition pre-approved rather than assumed.
+ISIN-only asset identification + "reject upload if missing ISIN" — trade books often include non-trade ledger lines (STT, stamp duty, DP charges) with no ISIN. Need an explicit rule for filtering those out before the "no ISIN → reject whole upload" check fires.
+status columns on investment_pots/investment_accounts/etc. are a new convention — Banking's accounts/budgets tables have no status column today. Fine to introduce, just pick the enum values explicitly (e.g. ACTIVE/ARCHIVED) since there's no existing precedent to mirror.
+tigzig NAV API: response has isin and isin2 — matching logic should check both; also scheme_code returned by this third-party API may not be the authoritative AMFI code — recommend not writing it into amfi_scheme_code unless verified, treat it as a response-matching key only.
+Single-account-per-upload assumption (Holdings + Trade Book both scoped to one selected account) should be explicitly confirmed — consolidated broker statements sometimes span multiple demat accounts in one file.
+None of this contradicts your architecture — it's all solvable within the model you've defined. I'd just get explicit answers on #1–#4 (especially #1) before code is written, since they affect the shape of investment_transaction_pot_allocations usage and the reconciliation job payload, which everything else builds on.
+
+sure, let me analyse and come back.
+
+Sounds good. Take your time — when you're ready, just let me know your decisions on the 5 flagged issues (especially #1, the asset-level reallocation semantics, since that shapes the data model usage everywhere else) and I'll fold them into a finalized implementation plan before touching any code.
+
+For reference, here's the quick decision checklist from the review:
+
+Asset-level Pot reallocation — uniform overwrite across all of that asset's transactions (my suggestion) vs. direct aggregate edit (breaks derivability)?
+SELL trade allocation semantics — does SELL subtract from a Pot's allocated units, and what happens if it would go negative?
+LLM-only parsing for Excel — keep as instructed with an added amount ≈ units × price per-row guard, or reconsider deterministic parsing given Excel is structured data?
+Reconciliation dummy trades — what price/amount source for a unit-mismatch dummy row, and confirm the per-asset (array-shaped) AWAITING_CONFIRMATION payload redesign is fine?
+Bottom nav wiring — confirm it's fine that _onNavTap needs real branching logic added (not just a label swap).
+Plus the minor items (Excel-parsing dependency approval, ISIN-missing non-trade ledger rows, status enum values, tigzig isin2 matching, single-account-per-upload assumption) whenever convenient.
+
+I'll keep the full project context and this review in mind — just ping me when you've got answers, or if you want to tackle them one at a time via AskQuestion instead of all at once.
+</Cursor followup questions>
+
+
+<My response>
+First, don't lean too heavily on the Banking implementation or try to force the Investments implementation to reuse the same logic/code.
+
+Use Banking primarily as a reference implementation for patterns, UX, and proven approaches. Wherever a pattern is reusable, feel free to follow it, but keep the Investments implementation independently structured where the domain requires it.
+
+Also, keep the existing Banking implementation largely untouched. Prefer implementing parallel Investments-specific code rather than modifying existing Banking functions to support both domains, as that could introduce unnecessary coupling and complexity over time.
+
+Now, regarding the issues you identified:
+
+1. Asset-level Pot reallocation
+
+Park this for now.
+
+Do not implement Asset-level reallocation in this phase. We will design and implement this separately later.
+
+2. SELL transaction allocation
+
+Yes, a SELL transaction should subtract units from the selected Pot(s).
+
+When assigning a SELL transaction to a Pot, validate that the Pot has sufficient units of that asset.
+
+If there are insufficient units, do not allow the allocation and show a short warning immediately after the user selects the Pot, such as:
+
+"There aren't enough units in this Pot to assign this sell transaction. Assign the corresponding buy transaction(s) to this Pot first."
+
+The Pot position must never become negative.
+
+3. LLM-only parsing
+
+Keep LLM-only parsing for this version.
+
+Do not implement deterministic/hybrid parsing yet because broker statement structures are not known sufficiently.
+
+However, add strong validation around the LLM output.
+
+In particular, add a per-trade sanity check that validates:
+
+    amount ≈ units × price
+
+within an appropriate tolerance for rounding.
+
+If the validation fails, flag the row and do not silently accept it.
+
+4. Reconciliation dummy trades
+
+For reconciliation trades, use the asset's latest price available from the Holdings file as the price for the proposed dummy trade.
+
+Do not update the global latest-price tables using this value unless it is part of the normal price-refresh flow.
+
+For the reconciliation workflow, do NOT modify or extend the existing Banking statement job payloads, endpoints, or tables.
+
+Implement a parallel Investments-specific job/reconciliation flow with its own payload structure and endpoints.
+
+The Banking implementation should remain untouched.
+
+5. Investments bottom navigation
+
+Investments needs its own independent bottom navigation.
+
+Do not create a single shared bottom navigation that dynamically changes behavior between Banking and Investments.
+
+The Banking ↔ Investments switch should effectively switch the entire section, including its body, navigation structure, routing, and screen behavior.
+
+Some navigation items may have the same labels in both sections, but their implementations and routing should remain independent.
+
+The Investments navigation should therefore be implemented separately from Banking, while following Banking's proven UX patterns where appropriate.
+</My response>
