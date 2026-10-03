@@ -5,6 +5,7 @@ import '../../core/app_theme.dart';
 import '../../data/models/investments_models.dart';
 import '../../state/investments_controller.dart';
 import '../../utils/amount_formatter.dart';
+import '../widgets/expandable_name_text.dart';
 import 'investments_account_sheets.dart';
 
 /// Assets tab — the detailed holdings view. Assets are grouped by
@@ -93,17 +94,28 @@ class _AccountGroup extends StatelessWidget {
   }
 }
 
-/// Non-collapsible visual grouping/divider — never expandable (per spec).
-/// The rename action belongs here only, never on individual Asset rows.
-class _AccountHeader extends StatelessWidget {
+/// Non-collapsible visual grouping/divider — never expandable (per spec,
+/// meaning it never reveals a children list like an Asset row does). Tapping
+/// anywhere on the header (other than the rename icon, which keeps its own
+/// independent tap) still toggles the account name between truncated and
+/// fully-wrapped, since that's the only "reveal" behavior this row has.
+class _AccountHeader extends StatefulWidget {
   const _AccountHeader({required this.account});
 
   final InvestmentsAccountAssetsDto account;
 
   @override
+  State<_AccountHeader> createState() => _AccountHeaderState();
+}
+
+class _AccountHeaderState extends State<_AccountHeader> {
+  bool _expanded = false;
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+    final account = widget.account;
 
     final broker = account.brokerName;
     final identifier = account.accountIdentifier;
@@ -114,60 +126,76 @@ class _AccountHeader extends StatelessWidget {
       subtitle = 'Broker: Not added';
     }
 
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          width: 4,
-          height: 34,
-          margin: const EdgeInsets.only(top: 2, right: 10),
-          decoration: BoxDecoration(
-            color: cs.primary,
-            borderRadius: BorderRadius.circular(2),
+    return InkWell(
+      onTap: () => setState(() => _expanded = !_expanded),
+      borderRadius: BorderRadius.circular(8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 4,
+            height: 34,
+            margin: const EdgeInsets.only(top: 2, right: 10),
+            decoration: BoxDecoration(
+              color: cs.primary,
+              borderRadius: BorderRadius.circular(2),
+            ),
           ),
-        ),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                account.accountName,
-                style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                subtitle,
-                style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
-              ),
-            ],
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                ExpandableNameText(
+                  account.accountName,
+                  style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                  expanded: _expanded,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+                ),
+              ],
+            ),
           ),
-        ),
-        IconButton(
-          onPressed: () => showRenameInvestmentsAccountSheet(
-            context,
-            accountId: account.accountId,
-            currentName: account.accountName,
+          IconButton(
+            onPressed: () => showRenameInvestmentsAccountSheet(
+              context,
+              accountId: account.accountId,
+              currentName: account.accountName,
+            ),
+            icon: const Icon(Icons.edit_outlined, size: 18),
+            tooltip: 'Rename account',
+            style: IconButton.styleFrom(foregroundColor: cs.onSurfaceVariant),
           ),
-          icon: const Icon(Icons.edit_outlined, size: 18),
-          tooltip: 'Rename account',
-          style: IconButton.styleFrom(foregroundColor: cs.onSurfaceVariant),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
 
 /// Individually collapsible Asset row — default collapsed. Expanding shows
-/// the read-only Pot allocation breakdown (view-only; no reallocation UI).
-class _AssetRow extends StatelessWidget {
+/// the read-only Pot allocation breakdown (view-only; no reallocation UI)
+/// AND, via the same single tap, reveals the full (untruncated) asset name
+/// — one tap target doing both, rather than the name having its own
+/// separate reveal zone.
+class _AssetRow extends StatefulWidget {
   const _AssetRow({required this.asset});
 
   final InvestmentsAssetDto asset;
 
   @override
+  State<_AssetRow> createState() => _AssetRowState();
+}
+
+class _AssetRowState extends State<_AssetRow> {
+  bool _expanded = false;
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+    final asset = widget.asset;
 
     final units = double.tryParse(asset.units) ?? 0;
     final price = asset.latestPrice == null ? null : double.tryParse(asset.latestPrice!);
@@ -180,13 +208,13 @@ class _AssetRow extends StatelessWidget {
         // it blends into the surrounding Card exactly like other cards.
         data: theme.copyWith(dividerColor: Colors.transparent),
         child: ExpansionTile(
+          onExpansionChanged: (expanded) => setState(() => _expanded = expanded),
           tilePadding: const EdgeInsets.fromLTRB(16, 4, 12, 4),
           childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
-          title: Text(
+          title: ExpandableNameText(
             asset.name,
             style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+            expanded: _expanded,
           ),
           subtitle: Padding(
             padding: const EdgeInsets.only(top: 4),

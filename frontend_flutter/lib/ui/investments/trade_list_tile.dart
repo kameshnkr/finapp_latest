@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/app_theme.dart';
 import '../../data/models/investments_models.dart';
 import '../../utils/amount_formatter.dart';
+import '../widgets/expandable_name_text.dart';
 
 /// Shared compact trade row for Un-labeled/Labeled lists. Shows exactly the
 /// fields the spec calls for: Asset, BUY/SELL, Units, Price, Amount, Trade
@@ -17,6 +18,7 @@ class TradeListTile extends StatelessWidget {
     this.selected = false,
     this.highlighted = false,
     this.trailing,
+    this.expanded = false,
   });
 
   final InvestmentsTradeDto trade;
@@ -28,6 +30,12 @@ class TradeListTile extends StatelessWidget {
   /// Optional extra widget appended below the row (e.g. an expand chevron
   /// content area) — used by LabeledTradesPage for the allocation detail.
   final Widget? trailing;
+  /// Whether this row is currently "expanded" — i.e. [trailing] (the Pot
+  /// allocation breakdown) is being shown. Drives whether the asset name
+  /// below is shown in full or truncated, so the SAME tap that reveals the
+  /// breakdown also reveals the full name, rather than the name having its
+  /// own separate reveal zone.
+  final bool expanded;
 
   @override
   Widget build(BuildContext context) {
@@ -79,11 +87,10 @@ class TradeListTile extends StatelessWidget {
                   ],
                   const SizedBox(width: 8),
                   Expanded(
-                    child: Text(
+                    child: ExpandableNameText(
                       trade.assetName,
                       style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                      expanded: expanded,
                     ),
                   ),
                   const SizedBox(width: 8),

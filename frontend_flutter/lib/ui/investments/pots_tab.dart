@@ -5,6 +5,7 @@ import '../../core/app_theme.dart';
 import '../../data/models/investments_models.dart';
 import '../../state/investments_controller.dart';
 import '../../utils/amount_formatter.dart';
+import '../widgets/expandable_name_text.dart';
 import 'investments_pot_sheets.dart';
 
 /// Pots tab — primary Investments view. Answers "how much money do I
@@ -152,90 +153,106 @@ class _TotalPortfolioHeader extends StatelessWidget {
   }
 }
 
-class _PotCard extends StatelessWidget {
+class _PotCard extends StatefulWidget {
   const _PotCard({required this.pot});
 
   final InvestmentsPotDto pot;
 
   @override
+  State<_PotCard> createState() => _PotCardState();
+}
+
+class _PotCardState extends State<_PotCard> {
+  bool _expanded = false;
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+    final pot = widget.pot;
     final value = double.tryParse(pot.currentValue) ?? 0;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: 38,
-              height: 38,
-              decoration: BoxDecoration(
-                color: cs.primaryContainer.withAlpha(90),
-                borderRadius: BorderRadius.circular(10),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        // Single tap target for the whole card: reveals the full Pot name
+        // (the edit icon below keeps its own independent tap, same
+        // well-established nested-gesture behavior used elsewhere).
+        onTap: () => setState(() => _expanded = !_expanded),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: cs.primaryContainer.withAlpha(90),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                alignment: Alignment.center,
+                child: Icon(Icons.savings_rounded, size: 19, color: cs.primary),
               ),
-              alignment: Alignment.center,
-              child: Icon(Icons.savings_rounded, size: 19, color: cs.primary),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      Flexible(
-                        child: Text(
-                          pot.name,
-                          style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Flexible(
+                          child: ExpandableNameText(
+                            pot.name,
+                            style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+                            expanded: _expanded,
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 4),
-                      // Edit icon sits right next to the Pot's name —
-                      // kept subtle (small, faint) so it doesn't compete
-                      // with the Pot's name for attention.
-                      InkWell(
-                        onTap: () => showEditInvestmentsPotSheet(
-                          context,
-                          potId: pot.id,
-                          currentName: pot.name,
-                          currentDescription: pot.description,
+                        const SizedBox(width: 4),
+                        // Edit icon sits right next to the Pot's name — kept
+                        // subtle (small, faint) so it doesn't compete with
+                        // the Pot's name for attention. Its own InkWell wins
+                        // over the card's tap when tapped precisely on it
+                        // (standard nested-gesture behavior).
+                        InkWell(
+                          onTap: () => showEditInvestmentsPotSheet(
+                            context,
+                            potId: pot.id,
+                            currentName: pot.name,
+                            currentDescription: pot.description,
+                          ),
+                          borderRadius: BorderRadius.circular(6),
+                          child: Padding(
+                            padding: const EdgeInsets.all(2),
+                            child: Icon(Icons.edit_outlined, size: 13, color: cs.onSurfaceVariant.withAlpha(140)),
+                          ),
                         ),
-                        borderRadius: BorderRadius.circular(6),
-                        child: Padding(
-                          padding: const EdgeInsets.all(2),
-                          child: Icon(Icons.edit_outlined, size: 13, color: cs.onSurfaceVariant.withAlpha(140)),
-                        ),
+                      ],
+                    ),
+                    if (pot.description != null && pot.description!.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        pot.description!,
+                        style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ],
-                  ),
-                  if (pot.description != null && pot.description!.isNotEmpty) ...[
-                    const SizedBox(height: 2),
-                    Text(
-                      pot.description!,
-                      style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
                   ],
-                ],
+                ),
               ),
-            ),
-            const SizedBox(width: 8),
-            Text(
-              '₹${compactAmount(value)}',
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w700,
-                color: AppColors.amount,
+              const SizedBox(width: 8),
+              Text(
+                '₹${compactAmount(value)}',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.amount,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

@@ -152,6 +152,7 @@ class _LabeledTradesPageState extends State<LabeledTradesPage> {
             }
           }),
           trailing: isExpanded ? _AllocationDetail(trade: t) : null,
+          expanded: isExpanded,
         );
       },
     );
