@@ -1,6 +1,6 @@
 [x] Issue: longer titles for asset names, pot names, etc are showing dots on mobile screens, what should we do to show it atleast after some action if showing entire name is not possible in initial view, i observed this problem in pots tab, assets tab, trades tabs.
-[] Issue: Its not enabling the upload button in specific case: new user --> uploaded and labeled trades, then came to upload screen again, selected both files, but its not enabling upload button, not sure this is actual reproduce steps or its just a momentary browser issue.
-[] Issue: Add/+ button is not functioning when we click it when we are on assets tab, its working from pots tab.
+[] Issue, need to reproduce: Its not enabling the upload button in specific case: new user --> uploaded and labeled trades, then came to upload screen again, selected both files, but its not enabling upload button, not sure this is actual reproduce steps or its just a momentary browser issue.
+[x] Issue: Add/+ button is not functioning when we click it when we are on assets tab, its working from pots tab.
 
 [] How is it showing asset wise amounts in the assets tag? before labeling the trades (i means what is the source of the data)
 [x] From where that HDFC FLEXI CAP fund came, its not present in holdings or trades file, may be llm halusinated (kamesh5.nkr@gmail.com)

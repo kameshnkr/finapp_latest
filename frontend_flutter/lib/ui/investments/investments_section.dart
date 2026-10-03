@@ -203,121 +203,151 @@ class _InvestmentsBottomNavBar extends StatelessWidget {
       _ => -1,
     };
 
-    return Stack(
-      clipBehavior: Clip.none, // allows the FAB to overflow above the bar
-      alignment: Alignment.topCenter,
-      children: [
-        // ── Main bar ───────────────────────────────────────────────────
-        Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: AppColors.cardBorder),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withAlpha(18),
-                blurRadius: 16,
-                offset: const Offset(0, -3),
-              ),
-            ],
-          ),
-          height: 68,
-          child: Row(
-            children: [
-              Expanded(
-                child: _InvestmentsNavItem(
-                  icon: Icons.home_rounded,
-                  label: 'Home',
-                  active: activeButton == 0,
-                  onTap: () => onTap(0),
-                ),
-              ),
-              Expanded(
-                child: _InvestmentsNavItem(
-                  icon: Icons.sync_alt_rounded,
-                  label: 'Trades',
-                  active: activeButton == 1,
-                  onTap: () => onTap(1),
-                ),
-              ),
-              // Spacer gap where the FAB floats above
-              const SizedBox(width: 60),
-              Expanded(
-                child: _InvestmentsNavItem(
-                  icon: Icons.bar_chart_rounded,
-                  label: 'Reports',
-                  active: activeButton == 3,
-                  onTap: () => onTap(3),
-                ),
-              ),
-              Expanded(
-                child: _InvestmentsNavItem(
-                  icon: Icons.person_outline_rounded,
-                  label: 'Profile',
-                  active: activeButton == 4,
-                  onTap: () => onTap(4),
-                ),
-              ),
-            ],
-          ),
-        ),
+    // The "pop-out" FAB floats 22px above the 68px-tall bar (see `fabPopOut`
+    // below). Giving the Stack an explicit height that already includes that
+    // pop-out (rather than letting the FAB overflow the Stack's box via a
+    // negative `Positioned.top` + `clipBehavior: Clip.none`) matters for more
+    // than just visuals: Scaffold allocates `bottomNavigationBar` a fixed-size
+    // box separate from `body`. If the FAB visually overflows OUTSIDE that
+    // box, the overflowing portion still PAINTS fine (clipBehavior: none),
+    // but it is no longer within `bottomNavigationBar`'s hit-testable area —
+    // taps there geometrically land on whatever is in `body` at that same
+    // screen position instead. On a body with interactive content reaching
+    // that strip (e.g. Assets tab's tappable `ExpansionTile` rows), those
+    // taps get silently swallowed by the body instead of reaching the FAB,
+    // which is exactly what the reported "Add button not working on Assets
+    // tab" bug was — Pots tab's cards (at the time) simply had nothing
+    // interactive there, so it happened to not reveal the issue, even though
+    // the same underlying bug applied to both tabs.
+    const double barHeight = 68;
+    const double fabPopOut = 22;
 
-        // ── Popped-out centre FAB ──────────────────────────────────────
-        Positioned(
-          top: -22, // floats 22 px above the bar top edge
-          left: 0,
-          right: 0,
-          child: Center(
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                onTap: () => onTap(2),
-                borderRadius: BorderRadius.circular(40),
-                splashColor: Colors.white.withAlpha(50),
-                highlightColor: Colors.white.withAlpha(30),
-                hoverColor: Colors.white.withAlpha(20),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 56,
-                      height: 56,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        gradient: const LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [
-                            Color(0xFF5A9BFF), // light blue highlight
-                            Color(0xFF1468F2), // primary blue #1468F2
+    return SizedBox(
+      height: barHeight + fabPopOut,
+      child: Stack(
+        clipBehavior: Clip.none,
+        alignment: Alignment.topCenter,
+        children: [
+          // ── Main bar ─────────────────────────────────────────────────
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: AppColors.cardBorder),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withAlpha(18),
+                    blurRadius: 16,
+                    offset: const Offset(0, -3),
+                  ),
+                ],
+              ),
+              height: barHeight,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _InvestmentsNavItem(
+                      icon: Icons.home_rounded,
+                      label: 'Home',
+                      active: activeButton == 0,
+                      onTap: () => onTap(0),
+                    ),
+                  ),
+                  Expanded(
+                    child: _InvestmentsNavItem(
+                      icon: Icons.sync_alt_rounded,
+                      label: 'Trades',
+                      active: activeButton == 1,
+                      onTap: () => onTap(1),
+                    ),
+                  ),
+                  // Spacer gap where the FAB floats above
+                  const SizedBox(width: 60),
+                  Expanded(
+                    child: _InvestmentsNavItem(
+                      icon: Icons.bar_chart_rounded,
+                      label: 'Reports',
+                      active: activeButton == 3,
+                      onTap: () => onTap(3),
+                    ),
+                  ),
+                  Expanded(
+                    child: _InvestmentsNavItem(
+                      icon: Icons.person_outline_rounded,
+                      label: 'Profile',
+                      active: activeButton == 4,
+                      onTap: () => onTap(4),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          // ── Popped-out centre FAB — positioned from the TOP of this
+          // SizedBox (0, not negative), so its entire tap area — including
+          // the portion that visually pops out above the bar — is fully
+          // contained within the bottomNavigationBar's own hit-testable box.
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: () => onTap(2),
+                  borderRadius: BorderRadius.circular(40),
+                  splashColor: Colors.white.withAlpha(50),
+                  highlightColor: Colors.white.withAlpha(30),
+                  hoverColor: Colors.white.withAlpha(20),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 56,
+                        height: 56,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: const LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              Color(0xFF5A9BFF), // light blue highlight
+                              Color(0xFF1468F2), // primary blue #1468F2
+                            ],
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Color(0x661468F2),
+                              blurRadius: 12,
+                              offset: const Offset(0, 5),
+                            ),
                           ],
                         ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Color(0x661468F2),
-                            blurRadius: 12,
-                            offset: const Offset(0, 5),
-                          ),
-                        ],
+                        child: Icon(Icons.add, color: cs.onPrimary, size: 30),
                       ),
-                      child: Icon(Icons.add, color: cs.onPrimary, size: 30),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Add',
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        color: cs.onSurface.withOpacity(0.6),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Add',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: cs.onSurface.withOpacity(0.6),
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

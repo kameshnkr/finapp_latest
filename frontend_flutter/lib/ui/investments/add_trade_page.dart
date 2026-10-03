@@ -70,6 +70,12 @@ class _AddTradePageState extends State<AddTradePage> with SingleTickerProviderSt
   // ── File pick ─────────────────────────────────────────────────────────────
 
   Future<void> _pickFile(bool isHoldings) async {
+    if (_accountId == null) {
+      _showInfoSnack(
+        'Select an Investment Account above first — we need to know which account to import these trades/holdings into before you upload the files.',
+      );
+      return;
+    }
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['xlsx', 'xls', 'csv'],
@@ -95,6 +101,26 @@ class _AddTradePageState extends State<AddTradePage> with SingleTickerProviderSt
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(msg), behavior: SnackBarBehavior.floating),
+    );
+  }
+
+  /// A guidance/info snackbar (distinct from `_showTransientError`'s plain
+  /// error styling) — used when the user is blocked from an action for a
+  /// reason that isn't a failure, just a missing prerequisite step.
+  void _showInfoSnack(String msg) {
+    if (!mounted) return;
+    final cs = Theme.of(context).colorScheme;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(Icons.info_outline_rounded, color: cs.onInverseSurface, size: 18),
+            const SizedBox(width: 10),
+            Expanded(child: Text(msg)),
+          ],
+        ),
+        behavior: SnackBarBehavior.floating,
+      ),
     );
   }
 
@@ -336,6 +362,7 @@ class _AddTradePageState extends State<AddTradePage> with SingleTickerProviderSt
             title: 'Holdings Statement',
             subtitle: 'Current units per asset — used for reconciliation',
             fileName: _holdingsFile?.name,
+            enabled: _accountId != null,
             onTap: () => _pickFile(true),
           ),
           const SizedBox(height: 8),
@@ -343,6 +370,7 @@ class _AddTradePageState extends State<AddTradePage> with SingleTickerProviderSt
             title: 'Trade Book',
             subtitle: 'Individual buy/sell trades',
             fileName: _tradeBookFile?.name,
+            enabled: _accountId != null,
             onTap: () => _pickFile(false),
           ),
           const SizedBox(height: 6),
@@ -700,19 +728,49 @@ class _SelectableTile extends StatelessWidget {
 }
 
 class _FilePickTile extends StatelessWidget {
-  const _FilePickTile({required this.title, required this.subtitle, this.fileName, required this.onTap});
+  const _FilePickTile({
+    required this.title,
+    required this.subtitle,
+    this.fileName,
+    this.enabled = true,
+    required this.onTap,
+  });
 
   final String title;
   final String subtitle;
   final String? fileName;
+  /// When false (no Account selected yet), the tile renders in a visibly
+  /// muted/"locked" style with a hint instead of its usual subtitle — tap
+  /// still works and surfaces an explanatory snackbar via [onTap] rather
+  /// than silently doing nothing or opening the file picker anyway.
+  final bool enabled;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final picked = fileName != null;
+    final muted = !enabled;
+
+    final Color background;
+    final Color borderColor;
+    final Color iconColor;
+    if (muted) {
+      background = cs.surfaceContainerLow.withAlpha(120);
+      borderColor = AppColors.cardBorder.withAlpha(120);
+      iconColor = cs.onSurfaceVariant.withAlpha(110);
+    } else if (picked) {
+      background = AppColors.gain.withAlpha(14);
+      borderColor = AppColors.gain.withAlpha(120);
+      iconColor = AppColors.gain;
+    } else {
+      background = cs.surfaceContainerLow;
+      borderColor = AppColors.cardBorder;
+      iconColor = cs.onSurfaceVariant;
+    }
+
     return Material(
-      color: picked ? AppColors.gain.withAlpha(14) : cs.surfaceContainerLow,
+      color: background,
       borderRadius: BorderRadius.circular(AppRadii.md),
       child: InkWell(
         borderRadius: BorderRadius.circular(AppRadii.md),
@@ -721,13 +779,15 @@ class _FilePickTile extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(AppRadii.md),
-            border: Border.all(color: picked ? AppColors.gain.withAlpha(120) : AppColors.cardBorder),
+            border: Border.all(color: borderColor),
           ),
           child: Row(
             children: [
               Icon(
-                picked ? Icons.check_circle_rounded : Icons.upload_file_outlined,
-                color: picked ? AppColors.gain : cs.onSurfaceVariant,
+                muted
+                    ? Icons.lock_outline_rounded
+                    : (picked ? Icons.check_circle_rounded : Icons.upload_file_outlined),
+                color: iconColor,
                 size: 22,
               ),
               const SizedBox(width: 12),
@@ -735,19 +795,29 @@ class _FilePickTile extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: muted ? cs.onSurfaceVariant.withAlpha(150) : null,
+                      ),
+                    ),
                     const SizedBox(height: 2),
                     Text(
-                      fileName ?? subtitle,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+                      muted ? 'Select an account above first' : (fileName ?? subtitle),
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: muted ? cs.onSurfaceVariant.withAlpha(150) : cs.onSurfaceVariant,
+                            fontStyle: muted ? FontStyle.italic : FontStyle.normal,
+                          ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
                   ],
                 ),
               ),
-              Text(picked ? 'Change' : 'Browse',
-                  style: TextStyle(color: cs.primary, fontWeight: FontWeight.w600, fontSize: 12)),
+              if (!muted)
+                Text(picked ? 'Change' : 'Browse',
+                    style: TextStyle(color: cs.primary, fontWeight: FontWeight.w600, fontSize: 12)),
             ],
           ),
         ),
