@@ -4,6 +4,14 @@ import 'package:http/http.dart' as http;
 
 import '../core/config.dart';
 
+/// One named file part for [ApiClient.postMultipartMultiBytes].
+class MultipartFilePart {
+  MultipartFilePart({required this.fieldName, required this.bytes, required this.fileName});
+  final String fieldName;
+  final List<int> bytes;
+  final String fileName;
+}
+
 class ApiException implements Exception {
   ApiException(this.status, this.body);
   final int status;
@@ -77,6 +85,28 @@ class ApiClient {
     request.files.add(
       http.MultipartFile.fromBytes('file', bytes, filename: fileName),
     );
+    request.fields.addAll(fields);
+    final streamed = await _http.send(request);
+    final res = await http.Response.fromStream(streamed);
+    return _decode(res);
+  }
+
+  /// Multi-file multipart upload — used by Investments' two-file (Holdings +
+  /// Trade Book) upload endpoint. Each [files] entry supplies its own form
+  /// field name so the server's multer `.fields([...])` config can bind them.
+  Future<dynamic> postMultipartMultiBytes(
+    String path, {
+    required List<MultipartFilePart> files,
+    Map<String, String> fields = const {},
+  }) async {
+    final uri = _uri(path);
+    final request = http.MultipartRequest('POST', uri);
+    request.headers.addAll(_headers());
+    for (final f in files) {
+      request.files.add(
+        http.MultipartFile.fromBytes(f.fieldName, f.bytes, filename: f.fileName),
+      );
+    }
     request.fields.addAll(fields);
     final streamed = await _http.send(request);
     final res = await http.Response.fromStream(streamed);

@@ -8,6 +8,12 @@ import { accountRouter } from "./routes/accountRoutes.js";
 import { budgetRouter } from "./routes/budgetRoutes.js";
 import { transactionRouter } from "./routes/transactionRoutes.js";
 import { statementRouter } from "./routes/statementRoutes.js";
+import { investmentsPotRouter } from "./routes/investmentsPotRoutes.js";
+import { investmentsAccountRouter } from "./routes/investmentsAccountRoutes.js";
+import { investmentsAssetRouter } from "./routes/investmentsAssetRoutes.js";
+import { investmentsUploadRouter } from "./routes/investmentsUploadRoutes.js";
+import { investmentsTradeRouter } from "./routes/investmentsTradeRoutes.js";
+import { investmentsPriceRouter } from "./routes/investmentsPriceRoutes.js";
 
 function buildCorsOptions(): CorsOptions {
   const common: CorsOptions = {
@@ -41,6 +47,14 @@ export function createApp() {
   app.use("/api/budgets", budgetRouter);
   app.use("/api/transactions", transactionRouter);
   app.use("/api/statements", statementRouter);
+
+  // ── Investments (parallel implementation — independent tables/services) ──
+  app.use("/api/investments/pots", investmentsPotRouter);
+  app.use("/api/investments/accounts", investmentsAccountRouter);
+  app.use("/api/investments/assets", investmentsAssetRouter);
+  app.use("/api/investments/uploads", investmentsUploadRouter);
+  app.use("/api/investments/trades", investmentsTradeRouter);
+  app.use("/api/investments/prices", investmentsPriceRouter);
 
   app.use(errorHandler);
   return app;

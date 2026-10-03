@@ -3,12 +3,20 @@ import 'package:provider/provider.dart';
 
 import '../../core/app_theme.dart';
 import '../../state/app_controller.dart';
+import '../investments/investments_section.dart';
 import '../transactions/transaction_flow_screens.dart';
+import '../widgets/coming_soon_placeholder.dart';
+import '../widgets/profile_view.dart';
 import 'budget_tab.dart';
 import 'accounts_tab.dart';
 
 // ══════════════════════════════════════════════════════════════════════════════
-// HomeScreen — shell with Banking / Investments global switcher + bottom nav
+// HomeScreen — shell: owns ONLY the Banking/Investments global toggle and
+// mounts one of two FULLY INDEPENDENT section-root widgets. Each section
+// (_BankingSectionRoot below, InvestmentsSectionRoot in
+// lib/ui/investments/investments_section.dart) owns its own bottom nav bar,
+// nav-index state, and push targets — this file contains no
+// Investments-specific navigation logic at all.
 // ══════════════════════════════════════════════════════════════════════════════
 
 class HomeScreen extends StatefulWidget {
@@ -18,134 +26,48 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
-  /// 0 = Home  1 = Reports  2 = Profile
-  int _navIndex = 0;
-
+class _HomeScreenState extends State<HomeScreen> {
   bool _isBanking = true;
-
-  late final TabController _homeSubTab; // Budgets / Accounts
-
-  @override
-  void initState() {
-    super.initState();
-    _homeSubTab = TabController(length: 2, vsync: this);
-  }
-
-  @override
-  void dispose() {
-    _homeSubTab.dispose();
-    super.dispose();
-  }
-
-  // ── Navigation ────────────────────────────────────────────────────────────
-
-  /// Bottom-nav has 5 visual buttons; index 2 is the centre + FAB.
-  /// Logical page indices: 0=Home  1=Reports  2=Profile.
-  /// Buttons 1 (Transactions) and 2 (+) push routes; they are never "active".
-  void _onNavTap(int buttonIndex) {
-    switch (buttonIndex) {
-      case 0: // Home
-        if (_navIndex != 0) setState(() => _navIndex = 0);
-      case 1: // Transactions → opens on Drafts tab
-        Navigator.of(context).push<void>(
-          MaterialPageRoute<void>(
-            builder: (_) => const TransactionsScreen(initialTab: 1),
-          ),
-        );
-      case 2: // + → opens on Add Draft tab
-        Navigator.of(context).push<void>(
-          MaterialPageRoute<void>(
-            builder: (_) => const TransactionsScreen(initialTab: 0),
-          ),
-        );
-      case 3: // Reports
-        if (_navIndex != 1) setState(() => _navIndex = 1);
-      case 4: // Profile
-        if (_navIndex != 2) setState(() => _navIndex = 2);
-    }
-  }
-
-  // ── Build ─────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppController>();
-    final draftCount = app.drafts.length;
 
-    return Scaffold(
-      appBar: _buildAppBar(app, draftCount),
-      body: IndexedStack(
-        index: _navIndex,
-        children: [
-          // ── 0: Home (Banking ↔ Investments) ─────────────────────────────
-          _HomeContentView(
-            isBanking: _isBanking,
-            homeSubTab: _homeSubTab,
-          ),
-          // ── 1: Reports ────────────────────────────────────────────────
-          const _ReportsPlaceholder(),
-          // ── 2: Profile ────────────────────────────────────────────────
-          _ProfileView(onLogout: () async => app.logout()),
-        ],
-      ),
-      bottomNavigationBar: SafeArea(
-        minimum: const EdgeInsets.fromLTRB(4, 0, 4, 10),
-        child: _BottomNavBar(
-          currentPageIndex: _navIndex,
-          draftCount: draftCount,
-          onTap: _onNavTap,
-        ),
-      ),
+    // Built once per rebuild and handed identically to both sections so the
+    // switcher pill looks and behaves the same regardless of which section
+    // is currently mounted.
+    final bankingSwitcher = _GlobalSwitcher(
+      isBanking: true,
+      onChanged: (v) => setState(() => _isBanking = v),
     );
-  }
+    final investmentsSwitcher = _GlobalSwitcher(
+      isBanking: false,
+      onChanged: (v) => setState(() => _isBanking = v),
+    );
 
-  // ── AppBar factory ────────────────────────────────────────────────────────
-
-  PreferredSizeWidget _buildAppBar(AppController app, int draftCount) {
-    if (_navIndex == 0) {
-      return AppBar(
-        titleSpacing: 0,
-        title: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: _GlobalSwitcher(
-            isBanking: _isBanking,
-            onChanged: (v) => setState(() => _isBanking = v),
-          ),
+    // IndexedStack keeps both sections' internal state (nav index, tab
+    // controllers, scroll position) alive across toggles, instead of
+    // rebuilding either section from scratch every time the user switches.
+    return IndexedStack(
+      index: _isBanking ? 0 : 1,
+      children: [
+        _BankingSectionRoot(
+          globalSwitcher: bankingSwitcher,
+          onLogout: () async => app.logout(),
         ),
-        centerTitle: false,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.search_rounded),
-            tooltip: 'Search',
-            onPressed: () {},
-          ),
-        ],
-        bottom: _isBanking
-            ? PreferredSize(
-                preferredSize: const Size.fromHeight(48),
-                child: TabBar(
-                  controller: _homeSubTab,
-                  indicatorSize: TabBarIndicatorSize.tab,
-                  splashBorderRadius: BorderRadius.circular(8),
-                  tabs: const [
-                    Tab(text: 'Budgets'),
-                    Tab(text: 'Accounts'),
-                  ],
-                ),
-              )
-            : null,
-      );
-    }
-
-    // Reports / Profile
-    const titles = ['', 'Reports', 'Profile'];
-    return AppBar(title: Text(titles[_navIndex]));
+        InvestmentsSectionRoot(
+          globalSwitcher: investmentsSwitcher,
+          onLogout: () async => app.logout(),
+          isActive: !_isBanking,
+        ),
+      ],
+    );
   }
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// Global Banking / Investments Switcher
+// Global Banking / Investments Switcher — shell-level (shared by both
+// sections' Home AppBar), not owned by either section.
 // ══════════════════════════════════════════════════════════════════════════════
 
 class _GlobalSwitcher extends StatelessWidget {
@@ -249,7 +171,153 @@ class _SwitcherPill extends StatelessWidget {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// Bottom Navigation Bar
+// BankingSectionRoot — fully independent section: owns its own bottom nav
+// bar, nav-index state, and push targets. This is a pixel-identical
+// relocation of what was previously HomeScreen's own body — no behavior
+// change, only the Investments branch (previously an inline IndexedStack
+// toggle here) has been removed since Investments now lives in its own
+// section entirely.
+// ══════════════════════════════════════════════════════════════════════════════
+
+class _BankingSectionRoot extends StatefulWidget {
+  const _BankingSectionRoot({
+    required this.globalSwitcher,
+    required this.onLogout,
+  });
+
+  final Widget globalSwitcher;
+  final VoidCallback onLogout;
+
+  @override
+  State<_BankingSectionRoot> createState() => _BankingSectionRootState();
+}
+
+class _BankingSectionRootState extends State<_BankingSectionRoot>
+    with TickerProviderStateMixin {
+  /// 0 = Home  1 = Reports  2 = Profile
+  int _navIndex = 0;
+
+  late final TabController _homeSubTab; // Budgets / Accounts
+
+  @override
+  void initState() {
+    super.initState();
+    _homeSubTab = TabController(length: 2, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _homeSubTab.dispose();
+    super.dispose();
+  }
+
+  // ── Navigation ────────────────────────────────────────────────────────────
+
+  /// Bottom-nav has 5 visual buttons; index 2 is the centre + FAB.
+  /// Logical page indices: 0=Home  1=Reports  2=Profile.
+  /// Buttons 1 (Transactions) and 2 (+) push routes; they are never "active".
+  void _onNavTap(int buttonIndex) {
+    switch (buttonIndex) {
+      case 0: // Home
+        if (_navIndex != 0) setState(() => _navIndex = 0);
+      case 1: // Transactions → opens on Drafts tab
+        Navigator.of(context).push<void>(
+          MaterialPageRoute<void>(
+            builder: (_) => const TransactionsScreen(initialTab: 1),
+          ),
+        );
+      case 2: // + → opens on Add Draft tab
+        Navigator.of(context).push<void>(
+          MaterialPageRoute<void>(
+            builder: (_) => const TransactionsScreen(initialTab: 0),
+          ),
+        );
+      case 3: // Reports
+        if (_navIndex != 1) setState(() => _navIndex = 1);
+      case 4: // Profile
+        if (_navIndex != 2) setState(() => _navIndex = 2);
+    }
+  }
+
+  // ── Build ─────────────────────────────────────────────────────────────────
+
+  @override
+  Widget build(BuildContext context) {
+    final app = context.watch<AppController>();
+    final draftCount = app.drafts.length;
+
+    return Scaffold(
+      appBar: _buildAppBar(),
+      body: IndexedStack(
+        index: _navIndex,
+        children: [
+          // ── 0: Home (Budgets / Accounts) ────────────────────────────
+          TabBarView(
+            controller: _homeSubTab,
+            children: const [BudgetTab(), AccountsTab()],
+          ),
+          // ── 1: Reports ────────────────────────────────────────────────
+          const ComingSoonPlaceholder(
+            icon: Icons.bar_chart_rounded,
+            title: 'Reports',
+            subtitle: 'Work in progress',
+          ),
+          // ── 2: Profile ────────────────────────────────────────────────
+          ProfileView(onLogout: widget.onLogout),
+        ],
+      ),
+      bottomNavigationBar: SafeArea(
+        minimum: const EdgeInsets.fromLTRB(4, 0, 4, 10),
+        child: _BottomNavBar(
+          currentPageIndex: _navIndex,
+          draftCount: draftCount,
+          onTap: _onNavTap,
+        ),
+      ),
+    );
+  }
+
+  // ── AppBar factory ────────────────────────────────────────────────────────
+
+  PreferredSizeWidget _buildAppBar() {
+    if (_navIndex == 0) {
+      return AppBar(
+        titleSpacing: 0,
+        title: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: widget.globalSwitcher,
+        ),
+        centerTitle: false,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.search_rounded),
+            tooltip: 'Search',
+            onPressed: () {},
+          ),
+        ],
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(48),
+          child: TabBar(
+            controller: _homeSubTab,
+            indicatorSize: TabBarIndicatorSize.tab,
+            splashBorderRadius: BorderRadius.circular(8),
+            tabs: const [
+              Tab(text: 'Budgets'),
+              Tab(text: 'Accounts'),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // Reports / Profile
+    const titles = ['', 'Reports', 'Profile'];
+    return AppBar(title: Text(titles[_navIndex]));
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Bottom Navigation Bar — Banking-owned copy (unchanged from before).
 // ══════════════════════════════════════════════════════════════════════════════
 
 class _BottomNavBar extends StatelessWidget {
@@ -413,8 +481,7 @@ class _NavItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final color =
-        active ? cs.primary : cs.onSurfaceVariant.withAlpha(160);
+    final color = active ? cs.primary : cs.onSurfaceVariant.withAlpha(160);
 
     return Material(
       color: Colors.transparent,
@@ -457,235 +524,3 @@ class _NavItem extends StatelessWidget {
     );
   }
 }
-
-// ══════════════════════════════════════════════════════════════════════════════
-// Home content view  (Banking tabs OR Investments placeholder)
-// ══════════════════════════════════════════════════════════════════════════════
-
-class _HomeContentView extends StatelessWidget {
-  const _HomeContentView({
-    required this.isBanking,
-    required this.homeSubTab,
-  });
-
-  final bool isBanking;
-  final TabController homeSubTab;
-
-  @override
-  Widget build(BuildContext context) {
-    return IndexedStack(
-      index: isBanking ? 0 : 1,
-      children: [
-        TabBarView(
-          controller: homeSubTab,
-          children: const [BudgetTab(), AccountsTab()],
-        ),
-        const _InvestmentsPlaceholder(),
-      ],
-    );
-  }
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-// Investments Placeholder
-// ══════════════════════════════════════════════════════════════════════════════
-
-class _InvestmentsPlaceholder extends StatelessWidget {
-  const _InvestmentsPlaceholder();
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final tt = Theme.of(context).textTheme;
-
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(22),
-            decoration: BoxDecoration(
-              color: cs.primaryContainer.withAlpha(80),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              Icons.trending_up_rounded,
-              size: 42,
-              color: cs.primary,
-            ),
-          ),
-          const SizedBox(height: 18),
-          Text(
-            'Investments',
-            style: tt.titleMedium?.copyWith(
-              fontWeight: FontWeight.w700,
-              color: cs.onSurface,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'Coming soon',
-            style: tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-// Reports Placeholder
-// ══════════════════════════════════════════════════════════════════════════════
-
-class _ReportsPlaceholder extends StatelessWidget {
-  const _ReportsPlaceholder();
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final tt = Theme.of(context).textTheme;
-
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(22),
-            decoration: BoxDecoration(
-              color: cs.primaryContainer.withAlpha(80),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(Icons.bar_chart_rounded, size: 42, color: cs.primary),
-          ),
-          const SizedBox(height: 18),
-          Text(
-            'Reports',
-            style: tt.titleMedium?.copyWith(
-              fontWeight: FontWeight.w700,
-              color: cs.onSurface,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'Work in progress',
-            style: tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-// Profile View
-// ══════════════════════════════════════════════════════════════════════════════
-
-class _ProfileView extends StatelessWidget {
-  const _ProfileView({required this.onLogout});
-
-  final VoidCallback onLogout;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final tt = Theme.of(context).textTheme;
-
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 24, 16, 24),
-      children: [
-        // Avatar + name
-        Center(
-          child: Column(
-            children: [
-              CircleAvatar(
-                radius: 38,
-                backgroundColor: cs.primaryContainer,
-                child: Icon(
-                  Icons.person_rounded,
-                  size: 38,
-                  color: cs.primary,
-                ),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                'My Profile',
-                style: tt.titleMedium
-                    ?.copyWith(fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 28),
-            ],
-          ),
-        ),
-        _ProfileItem(
-          icon: Icons.person_outline_rounded,
-          label: 'Profile',
-          onTap: () {},
-        ),
-
-        _ProfileItem(
-          icon: Icons.settings_outlined,
-          label: 'Settings',
-          onTap: () {},
-        ),
-        const SizedBox(height: 8),
-        _ProfileItem(
-          icon: Icons.logout_rounded,
-          label: 'Logout',
-          color: cs.error,
-          onTap: onLogout,
-        ),
-      ],
-    );
-  }
-}
-
-class _ProfileItem extends StatelessWidget {
-  const _ProfileItem({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-    this.color,
-  });
-
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-  final Color? color;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final effectiveColor = color ?? cs.onSurface;
-
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(AppRadii.md),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
-          child: Row(
-            children: [
-              Icon(icon, size: 20, color: effectiveColor),
-              const SizedBox(width: 14),
-              Text(
-                label,
-                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      fontWeight: FontWeight.w500,
-                      color: effectiveColor,
-                    ),
-              ),
-              const Spacer(),
-              Icon(
-                Icons.chevron_right_rounded,
-                size: 18,
-                color: cs.outlineVariant,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
