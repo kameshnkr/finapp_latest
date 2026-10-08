@@ -1,6 +1,7 @@
 #Blockers for self usage:
 -------------------------
-[] (IN PROGRESS) Improvement: on click of category in detailed budget view, it should navigate to transactions list with pre applied filters. (1sp)
+[] (Next) Improvement: on click of category in detailed budget view, it should navigate to transactions list with pre applied filters. (1sp)
+[] Improvement: Handle password protected pdf files in statement import. (2sp)
 [] Charts for fund movement. (5sp)
 
 

@@ -1,7 +1,7 @@
 #Blockers for self usage:
 -------------------------
 [] Reallocation feature for investments. (5sp)
-[] (IN PROGRESS) Improvement: Add proper day and month divider in trades listing both in unlabelled and labelled trades listing views. (1sp)
+[x] Improvement: Add proper day and month divider in trades listing both in unlabelled and labelled trades listing views. (1sp)
 [] Improvement: Charts for fund movement. (5sp)
 
 #Blockers for sharing with second user:
@@ -20,4 +20,6 @@
 [x] Add new pot option is missing and edit already created pot names and description is also missing.
 [x] For reconcil trades, it should have a note or indicator that indicates those trades are created for reconcil purpose and not the actual trades.
 [x] Fix the total portfolio card (minimise it) may be it will get minimised when add new pot option added at top right.
+
+
 

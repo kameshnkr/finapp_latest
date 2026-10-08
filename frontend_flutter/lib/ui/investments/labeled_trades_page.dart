@@ -5,6 +5,7 @@ import '../../core/app_theme.dart';
 import '../../data/models/investments_models.dart';
 import '../../state/investments_controller.dart';
 import '../../utils/amount_formatter.dart';
+import 'trade_date_section.dart';
 import 'trade_list_tile.dart';
 
 /// Labeled trades — every trade with allocation_status = ALLOCATED. Kept
@@ -129,18 +130,23 @@ class _LabeledTradesPageState extends State<LabeledTradesPage> {
       );
     }
 
+    final flatItems = buildTradeDateSections(_trades);
     return ListView.builder(
       controller: _scrollCtrl,
       padding: AppInsets.screen,
-      itemCount: _trades.length + (_loadingMore ? 1 : 0),
+      itemCount: flatItems.length + (_loadingMore ? 1 : 0),
       itemBuilder: (context, i) {
-        if (i >= _trades.length) {
+        if (i >= flatItems.length) {
           return const Padding(
             padding: EdgeInsets.symmetric(vertical: 14),
             child: Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))),
           );
         }
-        final t = _trades[i];
+        final item = flatItems[i];
+        if (item is TradeMonthDivider || item is TradeDateSectionHeader) {
+          return item as Widget;
+        }
+        final t = item as InvestmentsTradeDto;
         final isExpanded = _expanded.contains(t.id);
         return TradeListTile(
           trade: t,
