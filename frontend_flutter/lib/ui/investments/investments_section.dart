@@ -42,7 +42,7 @@ class InvestmentsSectionRoot extends StatefulWidget {
 }
 
 class _InvestmentsSectionRootState extends State<InvestmentsSectionRoot>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   /// 0 = Home  1 = Reports  2 = Profile
   int _navIndex = 0;
 
@@ -52,6 +52,14 @@ class _InvestmentsSectionRootState extends State<InvestmentsSectionRoot>
   @override
   void initState() {
     super.initState();
+    // Needed for didChangeAppLifecycleState below — this widget (and its
+    // State) is kept alive for the whole app process lifetime by
+    // HomeScreen's outer IndexedStack, so "once per session" (_hasLoadedOnce)
+    // alone only covers a true cold start; a user backgrounding the app
+    // (home button / app switcher) and reopening it later WITHOUT killing
+    // the process would never retrigger _loadOnce() — this observer plugs
+    // that gap for the price-refresh specifically.
+    WidgetsBinding.instance.addObserver(this);
     _homeSubTab = TabController(length: 2, vsync: this);
     if (widget.isActive) _loadOnce();
   }
@@ -64,14 +72,50 @@ class _InvestmentsSectionRootState extends State<InvestmentsSectionRoot>
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _homeSubTab.dispose();
     super.dispose();
+  }
+
+  /// Every time the app comes back to the foreground (home-screen/app-switch
+  /// resume, not just a cold start) — deliberately NOT gated behind
+  /// `_hasLoadedOnce`, unlike `_loadOnce()`, since that flag is about the
+  /// one-time initial data load, not price-refresh frequency. Safe to call
+  /// unconditionally on every resume: see
+  /// InvestmentsController.autoRefreshPrices doc for why repeat calls across
+  /// app opens on the same day are already near-free server-side.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _autoRefreshPrices();
   }
 
   void _loadOnce() {
     if (_hasLoadedOnce) return;
     _hasLoadedOnce = true;
     context.read<InvestmentsController>().loadHome();
+    // Fire-and-forget — must never block/delay the page's own loading state.
+    _autoRefreshPrices();
+  }
+
+  /// Silent price refresh — triggered once per app session on first entry
+  /// (via _loadOnce) AND on every subsequent app-foreground resume (via
+  /// didChangeAppLifecycleState above). Only surfaces a toast when at least
+  /// one price actually changed AND this section is the one currently
+  /// visible (`widget.isActive`) — showing an Investments toast while the
+  /// user is sitting on the Banking section would be confusing; the
+  /// underlying data still gets refreshed silently either way so it's
+  /// already fresh whenever they do switch over.
+  Future<void> _autoRefreshPrices() async {
+    final result = await context.read<InvestmentsController>().autoRefreshPrices();
+    if (!mounted || !widget.isActive || result == null) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Prices updated for ${result.updatedCount} '
+          'holding${result.updatedCount == 1 ? '' : 's'} — recheck your numbers.',
+        ),
+      ),
+    );
   }
 
   // ── Navigation ────────────────────────────────────────────────────────────
