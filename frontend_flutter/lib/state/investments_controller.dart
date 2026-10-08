@@ -164,4 +164,35 @@ class InvestmentsController extends ChangeNotifier {
       notifyListeners();
     }
   }
+
+  /// Silent, automatic counterpart to [refreshPrices] — triggered once per
+  /// app session the first time the user enters the Investments section
+  /// (see InvestmentsSectionRoot._loadOnce()), rather than only from the
+  /// manual AppBar button. Deliberately does NOT toggle [refreshingPrices]
+  /// (no spinner on the manual button — that would look like a bug the user
+  /// didn't trigger) and swallows all failures silently — this is purely
+  /// opportunistic background work the user never explicitly asked for, so
+  /// it must never interrupt them with an error.
+  ///
+  /// No additional client-side throttle (e.g. a "last auto-refreshed date"
+  /// persisted locally) is needed: the backend's own same-day skip (see
+  /// investmentsPriceRefreshService.ts — assets already synced today by ANY
+  /// user make zero external API calls) already makes repeat calls across
+  /// app opens on the same day essentially free.
+  ///
+  /// Returns the result only when a refresh actually updated at least one
+  /// price, so the caller can show a toast telling the user their numbers
+  /// may have changed; returns null otherwise (nothing to update, a manual
+  /// refresh was already running, or the call failed).
+  Future<InvestmentsPriceRefreshResultDto?> autoRefreshPrices() async {
+    if (refreshingPrices) return null; // a manual refresh is already running
+    try {
+      final result = await _api.refreshPrices();
+      if (result.updatedCount == 0) return null;
+      await _quietRefresh();
+      return result;
+    } catch (_) {
+      return null;
+    }
+  }
 }
