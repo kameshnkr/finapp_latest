@@ -6,7 +6,7 @@
 
 #Blockers for sharing with second user:
 ---------------------------------------
-[] Improvement: Trigger prices refresh based on some event, when user opened the app or switched to investments tab. (2sp)
+[x] Improvement: Trigger prices refresh based on some event, when user opened the app or switched to investments tab. (2sp)
 
 
 #Other bugs or improvements:
@@ -22,4 +22,6 @@
 [x] Fix the total portfolio card (minimise it) may be it will get minimised when add new pot option added at top right.
 
 
-
+Now we need to work on this task:
+[x] Improvement: Trigger prices refresh based on some event, when user opened the app or switched to investments tab. (2sp)
+what is the efficient way to trigger the prices refresh?

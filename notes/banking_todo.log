@@ -1,6 +1,6 @@
 #Blockers for self usage:
 -------------------------
-[] (Next) Improvement: on click of category in detailed budget view, it should navigate to transactions list with pre applied filters. (1sp)
+[] Improvement: on click of category in detailed budget view, it should navigate to transactions list with pre applied filters. (1sp)
 [] Improvement: Handle password protected pdf files in statement import. (2sp)
 [] Charts for fund movement. (5sp)
 
@@ -8,6 +8,7 @@
 #Blockers for sharing with second user:
 ----------------------------------------
 [] Improvement: fix auto restting logic when month changed. (4sp)
+[] Improvement: Make statement uploading robust and low latency and accurate.
 
 
 #Blockers for sharing with second user with credit card focused:
