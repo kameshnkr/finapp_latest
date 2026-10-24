@@ -1,0 +1,244 @@
+Goal: we have to implement the reallocate/transfer the amounts between pots, without effecting the actual net asset units or amounts.
+
+Approach (v2 — DIRECT POSITION ADJUSTMENT, no new ledger transactions):
+Backend execution differs from v1 as described below. The UI flow is REVISED from v1 (see
+"UI Flow v3 — Smart & Guided" section further down) to minimise the user's mental math and
+make errors structurally impossible rather than merely validated-against.
+The ONLY backend difference from v1 is what happens on "Proceed":
+
+    v1 (ledger approach): creates new Sell+Buy rows in investments_transactions (source='REALLOCATION'),
+        visible in Trades listing with a badge/note, same as Reconciliation trades.
+
+    v2 (this file): NO new rows in investments_transactions at all. Instead, directly adjust
+        investments_pot_positions.units for each (pot, account_asset) pair affected — a plain
+        "-X units here, +X units there" delta, using the exact same adjustPotPosition() upsert
+        already used by investmentsAllocationService.ts. investments_positions (the account-level
+        total per asset) is never touched either way, in both v1 and v2 — it was never meant to
+        change, since reallocation only moves POT ATTRIBUTION, not real holdings.
+
+    Nothing appears in the Trades listing (Un-labeled or Labeled) for a v2 reallocation — it is not
+    a trade. For traceability/audit purposes (so the user can see "when" and "what" moved between
+    pots later), a lightweight separate history record was proposed below —
+
+    DECIDED: DEFER this to a later fast-follow. Ship the core move-units functionality first
+    (direct investments_pot_positions adjustment, no history table at all), get it tested in real
+    use, THEN decide whether a dedicated history table is actually needed. Not part of v1 of this
+    feature.
+
+        (Deferred) New table (name TBD, e.g. investments_pot_reallocations):
+            id, user_id, account_asset_id, from_pot_id, to_pot_id,
+            units, price (price used at the time, just for displaying the rs-equivalent),
+            amount (units * price, for display only),
+            reallocation_date, created_at
+
+        One row per (asset, source pot, destination pot) movement. Would be shown only in a
+        dedicated "Reallocation history" view (e.g. on the Pot detail screen) — never mixed into
+        the Trades/Un-labeled/Labeled lists, since this is explicitly NOT a trade.
+
+---------------------------------
+
+Other resolved decisions (eligibility, edge cases, precision):
+
+    - Entry point visibility: the "Modify Allocation" button is HIDDEN entirely (not shown,
+      not disabled-with-tooltip — just absent) when the user has only a single pot total, since
+      there is nowhere to send/take from. No explanation needed; it simply doesn't render.
+
+    - Only ACTIVE pots are ever eligible anywhere in this flow — as the pot being modified, and as
+      every source/target pot offered in Screen 2. Archived pots are never shown as an option at
+      all (not merely excluded from sums), matching the existing real-allocation rule in
+      investmentsAllocationService.ts.
+
+    - Multi-account assets ARE in scope (not deferred). investments_pot_positions/transactions key
+      off (account, asset), not bare asset name — if a pot holds the same fund via 2+ different
+      investment accounts, EACH (account, asset) combination is its own line item in Screen 3's
+      breakdown, never merged. Broker name is never shown in this journey (deliberately kept out
+      of the mental model) — only a short account prefix disambiguates, e.g.:
+          "Acc 1 - UTI Nifty 50 Fund"   ₹5.00
+          "Acc 2 - UTI Nifty 50 Fund"   ₹5.00
+      (same account naming the app already uses elsewhere, e.g. "My Demat Account 1" shortened to
+      an "Acc N" style prefix — exact label format TBD at implementation time, just no broker name).
+
+    - Assets with no cached latest price (investments_asset_latest_prices has no row, or it's
+      otherwise unusable) are BLOCKED from reallocation entirely — not offered as a line item in
+      Screen 3, since there's no reliable rs <-> units conversion without a price. Mirrors how such
+      assets already contribute ₹0 to currentValue elsewhere in the app.
+
+    - Rounding/precision rule: units are always rounded to 6 decimals (matching the
+      NUMERIC(20,6) column). When converting a rupee split into units (amount ÷ price), the
+      ACTUALLY APPLIED amount for display/record purposes is recomputed as rounded_units × price
+      (not the originally-typed rupee figure) — the auto-balanced "last field" trick (above)
+      already absorbs most of this drift since it's always derived as a remainder, never typed.
+
+---------------------------------
+
+UI Flow v3 — Smart & Guided (replaces v1's 3-screen manual-entry flow)
+
+Problems with the v1 flow this fixes:
+    - Screen "distribute across pots" started blank — user had to mentally compute a valid split
+      from scratch with no pre-fill.
+    - TWO separate "must sum exactly to X" screens (pot-level, then per-pot asset-level) — each is
+      an independent place a typo can block progress.
+    - No upfront bound on the target amount — user could type an unreachable value and only find
+      out several screens later.
+    - No per-field max/cap shown — nothing stops typing a deduction bigger than what a pot/asset
+      actually holds until a late validation error.
+    - Review screen wasn't specified in UI terms — risk of defaulting to a raw wall of Sell/Buy-
+      style lines instead of what a user actually thinks in (pot balances, before -> after).
+
+Core trick used everywhere a number must be split across multiple fields: pre-fill every field
+with a sensible default, and make the LAST field always read-only / auto-computed as "whatever's
+left". This makes an incorrect sum structurally impossible, rather than something to validate
+against — there is never a "must match exactly" error, because the last number is never typed
+by the user.
+
+Confirmed defaults (decided, not just "recommended"):
+    - Pot-level split (Screen 2) default: EQUAL split across all other active pots.
+    - Asset-level split (Screen 3) default: EQUAL split across that pot's assets.
+    - The auto-computed "last field" is FULLY LOCKED/read-only, always — never tappable/editable.
+      If the user wants a different split, they edit one of the OTHER (non-last) fields instead;
+      the locked field just keeps re-deriving as "whatever's left". This keeps the "sum is always
+      correct" guarantee unconditional, with no escape hatch that could reintroduce a mismatch.
+
+Screen 1 — Target amount:
+    - Current amount (big, bold) --> Target amount [input, numeric keypad].
+    - Live inline chip updates on every keystroke: "Deduct ₹20" / "Add ₹50" — no separate confirm
+      step needed to see the effect of what was just typed.
+    - Input is bounded immediately:
+        - Decreasing: min = 0.
+        - Increasing: max = sum of what all other ACTIVE pots can actually supply right now.
+      Helper text under the field states the bound up front, e.g. "Max ₹180 — limited by other
+      pots' balances" — never lets the user walk into a dead end deep in the flow.
+    - "Next" enabled only once a valid non-zero delta is entered.
+
+Screen 2 — Pot distribution (smart-default, auto-balanced):
+    - One row per OTHER active pot: [Pot name] [Current ₹Y] [amount input].
+    - Pre-filled automatically the moment this screen opens — default = equal split across all
+      other pots. Zero typing required for the common case.
+    - All rows except the LAST are freely editable; the LAST row is always greyed-out / read-only,
+      showing the auto-computed remainder. Editing any earlier row instantly recalculates it live.
+      The sum is therefore always exactly correct by construction.
+    - Quick-action chips above the list: "Split equally" (reset to default) / "Proportional to pot
+      size" / tap a pot's name to send it 100% in one tap.
+    - Each row's input capped at that pot's max feasible contribution (deduct direction only),
+      shown inline as "(max ₹Z)" — cannot overshoot.
+    - If there is only ONE other eligible pot: SKIP this screen entirely, auto-route 100% to/from
+      it, go straight to Screen 3.
+    - Live summary line always visible, e.g. "₹20 to distribute — ✓ fully allocated".
+
+Screen 3 — Asset breakdown (shown plainly, not hidden behind a required tap):
+    - For each pot involved, show its computed per-asset split directly under its name — default
+      is an EQUAL split across that pot's assets, e.g. a pot touching 2 assets for ₹10 total shows:
+        "Pot 2 — ₹10:  ₹5.00 Axis Treasury Fund · ₹5.00 UTI Nifty 50 Fund"
+      with an "Edit" link to customise — most users never need to tap it.
+    - When customising, the SAME auto-balance-last-field trick applies per pot: edit N-1 asset
+      amounts, the last auto-fills as the remainder.
+    - Deduct-direction inputs capped to that asset's current value within that specific pot, with
+      an inline "(max ₹X)" hint and a one-tap "Max" shortcut to fill the ceiling.
+    - If a pot only touches a single asset, there is nothing to split — this pot's row shows the
+      full amount directly with no edit affordance needed at all.
+
+Screen 4 — Review:
+    - Leads with a plain-language Pot-level before -> after table (what a user actually cares
+      about), e.g.:
+          Pot 1   ₹100 -> ₹80   (−₹20)
+          Pot 2   ₹0   -> ₹10   (+₹10)
+          Pot 3   ₹0   -> ₹10   (+₹10)
+    - Below that, a collapsed "View asset-level detail" section with the granular units/price
+      breakdown, for power users / audit curiosity — collapsed by default, never required reading.
+    - Single "Proceed" button commits everything atomically.
+
+Net effect: in the common case (one target pot being edited, one or two other pots involved,
+each pot holding one or two assets), the flow collapses to effectively 2 real interactive screens
+(target amount -> review), with full manual override always available but never required.
+
+---------------------------------
+
+Example scenario (User wants to reduce the amount) — same setup as v1:
+Current values:
+    - Pot 1: 100rs
+        --> asset 1: 6 units, 10rs price = 60rs
+        --> asset 2: 8 units, 5rs price = 40rs
+    - Pot 2: 0rs
+    - Pot 3: 0rs
+    Total Asset wise:
+        --> asset 1: 6 units, 10rs price = 60rs
+        --> asset 2: 8 units, 5rs price = 40rs
+
+User wants to keep only 80rs in Pot 1 (same guided screens as v1, same user inputs):
+    Screen 1: Current amount: 100rs --> Target amount: 80rs (Deduct 20rs from Pot 1)
+        Transfer to other pots: pot 2: 10rs, pot 3: 10rs
+    Screen 2 (Asset-pot breakdown):
+        asset1: deduct 15rs -> pot 2: 7.5rs (0.75 units), pot 3: 7.5rs (0.75 units)
+        asset2: deduct 5rs  -> pot 2: 2.5rs (0.5 units),  pot 3: 2.5rs (0.5 units)
+    Screen 3: Review -> Proceed
+
+Execute (v2 — direct position deltas, no transactions created):
+    investments_pot_positions updates:
+        Pot 1, asset 1: units -1.5   (6.0  -> 4.5)   [0.75 to pot2 + 0.75 to pot3]
+        Pot 1, asset 2: units -1.0   (8.0  -> 7.0)   [0.5 to pot2 + 0.5 to pot3]
+        Pot 2, asset 1: units +0.75  (0.0  -> 0.75)
+        Pot 3, asset 1: units +0.75  (0.0  -> 0.75)
+        Pot 2, asset 2: units +0.5   (0.0  -> 0.5)
+        Pot 3, asset 2: units +0.5   (0.0  -> 0.5)
+
+    Check: Pot 1 lost 1.5u asset1 (15rs) + 1.0u asset2 (5rs) = 20rs total -> matches target deduction.
+    Check: Pot 2 gained 0.75u asset1 (7.5rs) + 0.5u asset2 (2.5rs) = 10rs -> matches its share.
+    Check: Pot 3 gained 0.75u asset1 (7.5rs) + 0.5u asset2 (2.5rs) = 10rs -> matches its share.
+    Check: Total units of asset1 across all pots = 4.5+0.75+0.75 = 6.0 (unchanged). Total units of
+        asset2 = 7.0+0.5+0.5 = 8.0 (unchanged). investments_positions never touched. ✓
+
+    Optional history rows (investments_pot_reallocations):
+        asset1, from pot1, to pot2, 0.75 units, 10rs price, 7.5rs
+        asset1, from pot1, to pot3, 0.75 units, 10rs price, 7.5rs
+        asset2, from pot1, to pot2, 0.5 units, 5rs price, 2.5rs
+        asset2, from pot1, to pot3, 0.5 units, 5rs price, 2.5rs
+
+---------------------------------
+
+Example scenario (User wants to increase the amount) — same setup as v1:
+Current values:
+    - Pot 1: 100rs
+        --> asset 1: 6 units, 10rs price = 60rs
+        --> asset 2: 8 units, 5rs price = 40rs
+    - Pot 2: 200rs
+        --> asset 1: 5 units, 10rs price = 50rs
+        --> asset 2: 30 units, 5rs price = 150rs
+    - Pot 3: 300rs
+        --> asset 1: 5 units, 10rs price = 50rs
+        --> asset 2: 50 units, 5rs price = 250rs
+    Total Asset wise:
+        --> asset 1: 16 units, 10rs price = 160rs
+        --> asset 2: 88 units, 5rs price = 440rs
+
+User wants to increase Pot 2 to 250rs (same guided screens as v1, same user inputs):
+    Screen 1: Current amount: 200rs --> Target amount: 250rs (Add 50rs to Pot 2)
+        Deduct from pots: pot 1: 25rs, pot 3: 25rs
+    Screen 2 (Pot-asset breakdown):
+        pot 1: deduct 25rs -> asset1: 12.5rs (1.25 units), asset2: 12.5rs (2.5 units)
+        pot 3: deduct 25rs -> asset1: 12.5rs (1.25 units), asset2: 12.5rs (2.5 units)
+    Screen 3: Review -> Proceed
+
+Execute (v2 — direct position deltas, no transactions created):
+    investments_pot_positions updates:
+        Pot 1, asset 1: units -1.25  (6.0  -> 4.75)
+        Pot 1, asset 2: units -2.5   (8.0  -> 5.5)
+        Pot 3, asset 1: units -1.25  (5.0  -> 3.75)
+        Pot 3, asset 2: units -2.5   (50.0 -> 47.5)
+        Pot 2, asset 1: units +2.5   (5.0  -> 7.5)    [1.25 from pot1 + 1.25 from pot3]
+        Pot 2, asset 2: units +5.0   (30.0 -> 35.0)   [2.5 from pot1 + 2.5 from pot3]
+
+    Check: Pot 1 lost 1.25u asset1 (12.5rs) + 2.5u asset2 (12.5rs) = 25rs -> matches its share.
+    Check: Pot 3 lost 1.25u asset1 (12.5rs) + 2.5u asset2 (12.5rs) = 25rs -> matches its share.
+    Check: Pot 2 gained 2.5u asset1 (25rs) + 5.0u asset2 (25rs) = 50rs -> matches target increase.
+    Check: Total units of asset1 across all pots = 4.75+7.5+3.75 = 16.0 (unchanged). Total units of
+        asset2 = 5.5+35.0+47.5 = 88.0 (unchanged). investments_positions never touched. ✓
+
+    Optional history rows (investments_pot_reallocations):
+        asset1, from pot1, to pot2, 1.25 units, 10rs price, 12.5rs
+        asset1, from pot3, to pot2, 1.25 units, 10rs price, 12.5rs
+        asset2, from pot1, to pot2, 2.5 units, 5rs price, 12.5rs
+        asset2, from pot3, to pot2, 2.5 units, 5rs price, 12.5rs
+
+
+
+

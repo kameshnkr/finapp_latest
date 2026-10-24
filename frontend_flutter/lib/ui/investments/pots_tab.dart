@@ -8,6 +8,7 @@ import '../../utils/amount_formatter.dart';
 import '../widgets/expandable_name_text.dart';
 import 'investments_pot_sheets.dart';
 import 'pot_icons.dart';
+import 'reallocate_pot_sheet.dart';
 
 /// Pots tab — primary Investments view. Answers "how much money do I
 /// currently have allocated toward each goal?". Deliberately shows ONLY
@@ -26,7 +27,9 @@ class PotsTab extends StatelessWidget {
         child: controller.loading
             ? const CircularProgressIndicator()
             : Text(
-                controller.error == null ? 'No portfolio data yet.' : 'Error: ${controller.error}',
+                controller.error == null
+                    ? 'No portfolio data yet.'
+                    : 'Error: ${controller.error}',
                 style: const TextStyle(color: Colors.grey),
               ),
       );
@@ -39,7 +42,9 @@ class PotsTab extends StatelessWidget {
       children: [
         _TotalPortfolioHeader(totalValue: totalValue),
         const SizedBox(height: 14),
-        ...portfolio.pots.map((p) => _PotCard(pot: p)),
+        ...portfolio.pots.map(
+          (p) => _PotCard(pot: p, canReallocate: portfolio.pots.length > 1),
+        ),
         const SizedBox(height: 4),
         const _InfoBanner(),
       ],
@@ -96,7 +101,11 @@ class _TotalPortfolioHeader extends StatelessWidget {
                       // headroom above its visible shape.
                       Padding(
                         padding: const EdgeInsets.only(top: 3),
-                        child: Icon(Icons.pie_chart_rounded, size: 19, color: cs.onSurfaceVariant),
+                        child: Icon(
+                          Icons.pie_chart_rounded,
+                          size: 19,
+                          color: cs.onSurfaceVariant,
+                        ),
                       ),
                       const SizedBox(width: 7),
                       Text(
@@ -155,9 +164,14 @@ class _TotalPortfolioHeader extends StatelessWidget {
 }
 
 class _PotCard extends StatefulWidget {
-  const _PotCard({required this.pot});
+  const _PotCard({required this.pot, required this.canReallocate});
 
   final InvestmentsPotDto pot;
+
+  /// Hides the "Transfer" affordance entirely (not just disables it) when
+  /// the user has only a single Pot total — there's nowhere to send units
+  /// to. See investments_pot_amounts_different_approach.log.
+  final bool canReallocate;
 
   @override
   State<_PotCard> createState() => _PotCardState();
@@ -183,76 +197,148 @@ class _PotCardState extends State<_PotCard> {
         onTap: () => setState(() => _expanded = !_expanded),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Container(
-                width: 38,
-                height: 38,
-                decoration: BoxDecoration(
-                  color: cs.primaryContainer.withAlpha(90),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                alignment: Alignment.center,
-                child: Icon(resolvePotIcon(pot.iconKey), size: 19, color: cs.primary),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.center,
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      color: cs.primaryContainer.withAlpha(90),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    alignment: Alignment.center,
+                    child: Icon(
+                      resolvePotIcon(pot.iconKey),
+                      size: 19,
+                      color: cs.primary,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Flexible(
-                          child: ExpandableNameText(
-                            pot.name,
-                            style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
-                            expanded: _expanded,
-                          ),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Flexible(
+                              child: ExpandableNameText(
+                                pot.name,
+                                style: theme.textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                expanded: _expanded,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            // Edit icon sits right next to the Pot's name — kept
+                            // subtle (small, faint) so it doesn't compete with
+                            // the Pot's name for attention. Its own InkWell wins
+                            // over the card's tap when tapped precisely on it
+                            // (standard nested-gesture behavior).
+                            InkWell(
+                              onTap: () => showEditInvestmentsPotSheet(
+                                context,
+                                potId: pot.id,
+                                currentName: pot.name,
+                                currentDescription: pot.description,
+                                currentIconKey: pot.iconKey,
+                              ),
+                              borderRadius: BorderRadius.circular(6),
+                              child: Padding(
+                                padding: const EdgeInsets.all(2),
+                                child: Icon(
+                                  Icons.edit_outlined,
+                                  size: 13,
+                                  color: cs.onSurfaceVariant.withAlpha(140),
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(width: 4),
-                        // Edit icon sits right next to the Pot's name — kept
-                        // subtle (small, faint) so it doesn't compete with
-                        // the Pot's name for attention. Its own InkWell wins
-                        // over the card's tap when tapped precisely on it
-                        // (standard nested-gesture behavior).
-                        InkWell(
-                          onTap: () => showEditInvestmentsPotSheet(
-                            context,
-                            potId: pot.id,
-                            currentName: pot.name,
-                            currentDescription: pot.description,
-                            currentIconKey: pot.iconKey,
+                        if (pot.description != null &&
+                            pot.description!.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            pot.description!,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: cs.onSurfaceVariant,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
                           ),
-                          borderRadius: BorderRadius.circular(6),
-                          child: Padding(
-                            padding: const EdgeInsets.all(2),
-                            child: Icon(Icons.edit_outlined, size: 13, color: cs.onSurfaceVariant.withAlpha(140)),
-                          ),
-                        ),
+                        ],
                       ],
                     ),
-                    if (pot.description != null && pot.description!.isNotEmpty) ...[
-                      const SizedBox(height: 2),
-                      Text(
-                        pot.description!,
-                        style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                  ],
-                ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    '₹${compactAmount(value)}',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.amount,
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(width: 8),
-              Text(
-                '₹${compactAmount(value)}',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.amount,
+              // The "Transfer" action is no longer shown by default — it
+              // only reveals once the card is expanded (tap anywhere on the
+              // card), as a proper elevated button rather than a small
+              // inline affordance competing with the amount for attention.
+              // Hidden entirely both when there's nowhere to send units to
+              // (single-Pot portfolio) and when this Pot has nothing to
+              // transfer out in the first place.
+              if (widget.canReallocate && value > 0.005)
+                AnimatedSize(
+                  duration: const Duration(milliseconds: 220),
+                  curve: Curves.easeOutCubic,
+                  alignment: Alignment.topCenter,
+                  child: _expanded
+                      ? Padding(
+                          padding: const EdgeInsets.only(top: 12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Divider(
+                                height: 1,
+                                color: cs.outlineVariant.withAlpha(130),
+                              ),
+                              const SizedBox(height: 12),
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: ElevatedButton.icon(
+                                  onPressed: () => showReallocatePotSheet(
+                                    context,
+                                    potId: pot.id,
+                                  ),
+                                  icon: const Icon(
+                                    Icons.sync_alt_rounded,
+                                    size: 18,
+                                  ),
+                                  label: const Text('Transfer'),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: cs.primaryContainer,
+                                    foregroundColor: cs.onPrimaryContainer,
+                                    elevation: 2,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 18,
+                                      vertical: 11,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      : const SizedBox(width: double.infinity),
                 ),
-              ),
             ],
           ),
         ),
@@ -283,9 +369,9 @@ class _InfoBanner extends StatelessWidget {
               'Track all your investments segregated into goal-wise Pots.\n'
               'Add investment statements to keep your portfolio up to date.',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: cs.onSurfaceVariant,
-                    height: 1.4,
-                  ),
+                color: cs.onSurfaceVariant,
+                height: 1.4,
+              ),
             ),
           ),
         ],

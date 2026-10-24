@@ -202,4 +202,35 @@ class InvestmentsApi {
     final j = await _client.postJson('/api/investments/prices/refresh') as Map<String, dynamic>;
     return InvestmentsPriceRefreshResultDto.fromJson(j);
   }
+
+  // ── Pot reallocation (move units between Pots, no new trades) ───────────
+
+  /// GET /api/investments/reallocation — every ACTIVE Pot's current value +
+  /// full per-(account, asset) position breakdown. The guided reallocation
+  /// UI uses this single payload to compute every default split/bound/cap
+  /// locally — no further round-trips needed until [executeReallocation].
+  Future<InvestmentsReallocationDataDto> fetchReallocationData() async {
+    final j = await _client.getJson('/api/investments/reallocation') as Map<String, dynamic>;
+    return InvestmentsReallocationDataDto.fromJson(j);
+  }
+
+  /// POST /api/investments/reallocation — atomically applies a fully-
+  /// resolved set of pot-to-pot unit movements computed client-side by the
+  /// guided UI. Throws [ApiException] on failure (insufficient units,
+  /// archived Pot, etc.) — the caller should surface the message verbatim.
+  Future<int> executeReallocation({
+    required List<({String accountAssetId, String fromPotId, String toPotId, String units})> movements,
+  }) async {
+    final j = await _client.postJson('/api/investments/reallocation', body: {
+      'movements': movements
+          .map((m) => {
+                'accountAssetId': m.accountAssetId,
+                'fromPotId': m.fromPotId,
+                'toPotId': m.toPotId,
+                'units': m.units,
+              })
+          .toList(),
+    }) as Map<String, dynamic>;
+    return j['movedCount'] as int;
+  }
 }

@@ -1,0 +1,19 @@
+this is becoming complex and won't be usefull.
+lets pivot to a different approach.
+Lets not go with the setting the target value to a current pot, instead of modify button, lets show a transfer button to make it more natural as poeple more familiar with the transferring the amounts than setting target value etc, we may provide some calculator later.
+so now, when user selects transfer button, we only have deduct flow only, no distribute flow, so its simplified. this approach is similar to transfering amounts between different bank accounts in real world and more familiar approach.
+
+
+so here it is:
+replace modify with "transfer", on click take the amount to transfer
+
+it will open the existing screen only with some modifications.
+
+Reallocate Funds
+<Pot Name> <Current Amount>
+-----
+Transfer [X] amount to <Pots Dropdown(single pot selectable)>
+----
+Once user selected, show the asset breakdown in the below section in the same view where currently we are showing pots breakdown.
+
+<Allocate button> with respective checks in place.
