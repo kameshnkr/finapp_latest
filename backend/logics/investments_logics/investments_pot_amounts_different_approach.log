@@ -17,3 +17,45 @@ Transfer [X] amount to <Pots Dropdown(single pot selectable)>
 Once user selected, show the asset breakdown in the below section in the same view where currently we are showing pots breakdown.
 
 <Allocate button> with respective checks in place.
+
+
+
+-----------------------------------------------------------------
+
+How about this approach to include three ways of transfer flows:
+1. Transfer X amount from this pot to other pot
+2. Receive X amount from other pot to this pot
+3. Adjust final amount to this pot
+But we will limit to single pot to single pot only.
+
+-- User clicks on Transfer button on pot card
+
+<Screen 1>
+Reallocate Funds
+<Pot Name> <Current Amount>
+-----
+Replace Transfer text to a drop down with three display options (Send, Receive, Adjust To) Default will be "Send"
+
+Dynamic placement of the Right side Pots dropdown and field title text:
+- When "send" is selected(Mostly the existing flow):
+    - Pots dropdown title text: "To Pot"
+- When "receive" is selected:
+    - Pots dropdown title text: "From Pot"
+    - Reverse the arrow direction.
+- When "adjust to" is selected:
+    - If the resulting operation requires sending the amount to other pot(Functionally same as "Send" but with a note below the amount field):
+            - Below amount field, show a text: "Send <x> amount to other pot"
+            - Pots dropdown title text: "To Pot"
+            - Point the arrow to the right.
+    - If the resulting operation requires receiving the amount from other pot (Functionally same as "Receive" but with a note below the amount field)::
+        - Below amount field, show a text: "Receive <x> amount from other pot"
+        - Pots dropdown title text: "From Pot"
+        - Point the arrow to the left.
+
+
+
+
+
+
+
+

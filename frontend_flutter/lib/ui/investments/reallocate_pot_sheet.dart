@@ -9,6 +9,7 @@ import '../../data/models/investments_models.dart';
 import '../../state/investments_controller.dart';
 import '../../utils/amount_formatter.dart';
 import '../../utils/api_error_utils.dart';
+import '../widgets/expandable_name_text.dart';
 import 'pot_icons.dart';
 
 double _round2(double v) => (v * 100).round() / 100;
@@ -21,15 +22,40 @@ typedef _Movement = ({
   String units,
 });
 
-/// Pot "Transfer" sheet — a single-screen deduct-only flow modeled after
-/// transferring money between bank accounts (familiar + simple), replacing
-/// the earlier "set a target value, distribute across many Pots" design.
+/// Three ways to move money between exactly two Pots — modeled after
+/// transferring money between bank accounts (familiar + simple), never a
+/// multi-Pot distribute.
 ///
-/// Flow: pick an amount to move OUT of this Pot, pick the single
-/// destination Pot it goes to, then (inline, same screen, no extra step)
-/// fine-tune exactly which underlying holdings fund that amount — defaults
-/// to a proportional-to-current-weight split so most users never need to
-/// touch it.
+/// - [send]: move an amount OUT of this Pot, into another Pot.
+/// - [receive]: pull an amount IN to this Pot, from another Pot.
+/// - [adjustTo]: declare what this Pot's final balance should be; the app
+///   works out whether that means sending the excess away or receiving the
+///   shortfall from the other Pot you pick.
+enum _Mode { send, receive, adjustTo }
+
+extension on _Mode {
+  String get label => switch (this) {
+    _Mode.send => 'Send',
+    _Mode.receive => 'Receive',
+    _Mode.adjustTo => 'Adjust To',
+  };
+
+  IconData get icon => switch (this) {
+    _Mode.send => Icons.call_made_rounded,
+    _Mode.receive => Icons.call_received_rounded,
+    _Mode.adjustTo => Icons.tune_rounded,
+  };
+}
+
+/// Pot "Transfer" sheet — a single-screen flow between exactly this Pot and
+/// one other Pot the user picks, replacing the earlier "set a target value,
+/// distribute across many Pots" design.
+///
+/// Flow: pick Send / Receive / Adjust To, enter an amount (or target
+/// balance), pick the single other Pot involved, then (inline, same
+/// screen, no extra step) fine-tune exactly which underlying holdings fund
+/// that amount — defaults to a proportional-to-current-weight split so most
+/// users never need to touch it.
 Future<void> showReallocatePotSheet(
   BuildContext context, {
   required String potId,
@@ -50,8 +76,9 @@ Future<void> showReallocatePotSheet(
 class ReallocatePotSheet extends StatefulWidget {
   const ReallocatePotSheet({super.key, required this.potId});
 
-  /// The Pot being transferred FROM (the one whose "Transfer" button was
-  /// tapped).
+  /// The Pot whose "Transfer" button was tapped — always shown in the
+  /// header, and always one side of the move (the other side is whichever
+  /// Pot the user picks below).
   final String potId;
 
   @override
@@ -67,22 +94,24 @@ class _AssetRow {
     required this.availableUnits,
     required this.ctrl,
   });
+
   final String accountAssetId;
   final String assetName;
   final String accountName;
   final double available;
 
-  /// Exact current units actually held in the source Pot for this asset —
-  /// used to clamp the final movement so a rupee amount that rounds up
-  /// slightly when converted back to units (e.g. because [available] was
-  /// itself rounded to the nearest cent) can never request more units than
-  /// genuinely exist. See `_buildMovements`.
+  /// Exact current units actually held (in whichever Pot is funding this
+  /// move — the "giver") for this asset — used to clamp the final
+  /// movement so a rupee amount that rounds up slightly when converted
+  /// back to units (e.g. because [available] was itself rounded to the
+  /// nearest cent) can never request more units than genuinely exist. See
+  /// `_buildMovements`.
   final double availableUnits;
   final TextEditingController ctrl;
 }
 
 class _ReallocatePotSheetState extends State<ReallocatePotSheet> {
-  /// Shared height for the "Transfer" amount field and the "To Pot" field
+  /// Shared height for the amount/target field and the other-Pot field
   /// beside it, so the two line up exactly despite one being a real
   /// `TextField` and the other a custom tappable row.
   static const double _fieldHeight = 44;
@@ -93,17 +122,29 @@ class _ReallocatePotSheetState extends State<ReallocatePotSheet> {
   final Map<String, double> _priceByAssetId = {};
   final Map<String, String> _iconKeyByPotId = {};
 
+  _Mode _mode = _Mode.send;
   final TextEditingController _amountCtrl = TextEditingController();
   final List<_AssetRow> _assetRows = [];
-  String? _destPotId;
+  String? _otherPotId;
   bool _saving = false;
   bool _hasMoreBelow = false;
   bool _hasMoreAbove = false;
 
+  /// Tracks which Pot the asset breakdown was last built from, so we only
+  /// rebuild it (and reset any manual edits) when the "giver" Pot actually
+  /// changes — e.g. switching modes, picking a different other Pot, or an
+  /// Adjust To target flipping which side is giving.
+  String? _lastGiverPotId;
+
   /// True once the user has manually typed in ANY asset-breakdown field —
-  /// auto-fill (proportional split of the transfer amount across this
+  /// auto-fill (proportional split of the move amount across the giver
   /// Pot's own holdings) only runs while this is false.
   bool _assetsUserEdited = false;
+
+  /// Asset names (keyed by `accountAssetId`) currently shown fully
+  /// (untruncated) instead of ellipsis-clipped — tapping a row's name
+  /// toggles its membership here, same pattern as the Pots/Assets tabs.
+  final Set<String> _expandedAssetIds = {};
 
   @override
   void initState() {
@@ -138,36 +179,14 @@ class _ReallocatePotSheetState extends State<ReallocatePotSheet> {
       for (final p in controller.portfolio?.pots ?? const []) {
         _iconKeyByPotId[p.id] = p.iconKey;
       }
-      for (final r in _assetRows) {
-        r.ctrl.dispose();
-      }
-      _assetRows.clear();
-      InvestmentsReallocationPotDto? source;
-      for (final p in data.pots) {
-        if (p.id == widget.potId) source = p;
-      }
-      for (final pos
-          in source?.positions ??
-              const <InvestmentsReallocationPositionDto>[]) {
-        final v = double.tryParse(pos.value) ?? 0;
-        if (v <= 0.001) continue;
-        final ctrl = TextEditingController();
-        ctrl.addListener(_onAssetChanged);
-        _assetRows.add(
-          _AssetRow(
-            accountAssetId: pos.accountAssetId,
-            assetName: pos.assetName,
-            accountName: pos.accountName,
-            available: v,
-            availableUnits: double.tryParse(pos.units) ?? 0,
-            ctrl: ctrl,
-          ),
-        );
-      }
       setState(() {
         _data = data;
         _loading = false;
       });
+      // Default mode is Send, whose giver is always this Pot itself — build
+      // the initial breakdown right away so it's ready the moment an
+      // amount is entered.
+      _syncAssetRowsForGiver();
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -186,9 +205,15 @@ class _ReallocatePotSheetState extends State<ReallocatePotSheet> {
     return null;
   }
 
+  /// This Pot — the one whose "Transfer" button opened this sheet. Always
+  /// one side of the move; which side depends on [_mode] (and, for Adjust
+  /// To, the computed direction).
   InvestmentsReallocationPotDto? get _sourcePot => _findPot(widget.potId);
 
-  List<InvestmentsReallocationPotDto> get _destPots =>
+  InvestmentsReallocationPotDto? get _otherPot =>
+      _otherPotId != null ? _findPot(_otherPotId!) : null;
+
+  List<InvestmentsReallocationPotDto> get _otherPots =>
       (_data?.pots ?? const <InvestmentsReallocationPotDto>[])
           .where((p) => p.id != widget.potId)
           .toList();
@@ -198,9 +223,51 @@ class _ReallocatePotSheetState extends State<ReallocatePotSheet> {
 
   double get _sourceValue => _sourcePot != null ? _potValue(_sourcePot!) : 0;
 
+  // ── Direction (who's giving, who's receiving) ────────────────────────────
+
+  /// Raw text typed into the single primary field — interpreted as "amount
+  /// to move" (Send/Receive) or "desired final balance for this Pot"
+  /// (Adjust To).
+  double get _rawInput => double.tryParse(_amountCtrl.text.trim()) ?? 0;
+
+  /// true: this Pot is giving money away. false: this Pot is receiving.
+  /// null: direction not yet known (Adjust To with nothing typed yet, or a
+  /// target that exactly matches the current balance — nothing to move).
+  bool? get _selfIsGiver {
+    switch (_mode) {
+      case _Mode.send:
+        return true;
+      case _Mode.receive:
+        return false;
+      case _Mode.adjustTo:
+        if (_amountCtrl.text.trim().isEmpty) return null;
+        final delta = _round2(_rawInput - _sourceValue);
+        if (delta.abs() <= 0.005) return null;
+        return delta < 0;
+    }
+  }
+
+  /// The Pot actually funding this move — whichever side ends up smaller.
+  /// Its positions are what the asset breakdown is built from.
+  InvestmentsReallocationPotDto? get _giverPot {
+    final isGiver = _selfIsGiver;
+    if (isGiver == null) return null;
+    return isGiver ? _sourcePot : _otherPot;
+  }
+
   // ── Live calculations ────────────────────────────────────────────────────
 
-  double get _amount => double.tryParse(_amountCtrl.text.trim()) ?? 0;
+  /// The actual amount being moved, regardless of mode.
+  double get _amount {
+    switch (_mode) {
+      case _Mode.send:
+      case _Mode.receive:
+        return _rawInput;
+      case _Mode.adjustTo:
+        if (_selfIsGiver == null) return 0;
+        return (_rawInput - _sourceValue).abs();
+    }
+  }
 
   double get _assetSum => _assetRows.fold(
     0.0,
@@ -211,13 +278,32 @@ class _ReallocatePotSheetState extends State<ReallocatePotSheet> {
 
   // ── Validation ────────────────────────────────────────────────────────────
 
-  String? get _amountError {
+  /// Error for the single primary field (amount or target), whichever is
+  /// showing for the current mode.
+  String? get _primaryFieldError {
     if (_amountCtrl.text.trim().isEmpty) return null;
-    if (_amount < 0) return 'Amount cannot be negative';
-    if (_amount > _sourceValue + 0.005) {
-      return 'Only ₹${compactAmount(_sourceValue)} available';
+    if (_rawInput < 0) return 'Amount cannot be negative';
+    switch (_mode) {
+      case _Mode.send:
+        if (_rawInput > _sourceValue + 0.005) {
+          return 'Only ₹${compactAmount(_sourceValue)} available';
+        }
+        return null;
+      case _Mode.receive:
+        final cap = _otherPot != null ? _potValue(_otherPot!) : null;
+        if (cap != null && _rawInput > cap + 0.005) {
+          return 'Only ₹${compactAmount(cap)} available in that Pot';
+        }
+        return null;
+      case _Mode.adjustTo:
+        if (_selfIsGiver == false) {
+          final cap = _otherPot != null ? _potValue(_otherPot!) : null;
+          if (cap != null && _amount > cap + 0.005) {
+            return 'That Pot only has ₹${compactAmount(cap)} available';
+          }
+        }
+        return null;
     }
-    return null;
   }
 
   String? _assetError(_AssetRow row) {
@@ -231,9 +317,10 @@ class _ReallocatePotSheetState extends State<ReallocatePotSheet> {
 
   bool get _canSubmit {
     if (_data == null || _loading || _saving) return false;
-    if (_destPotId == null) return false;
+    if (_otherPotId == null) return false;
+    if (_selfIsGiver == null) return false;
     if (_amount <= 0.005) return false;
-    if (_amountError != null) return false;
+    if (_primaryFieldError != null) return false;
     if (_assetRows.isEmpty) return false;
     if (_remaining.abs() > 0.015) return false;
     for (final r in _assetRows) {
@@ -244,8 +331,24 @@ class _ReallocatePotSheetState extends State<ReallocatePotSheet> {
 
   // ── Callbacks ─────────────────────────────────────────────────────────────
 
+  void _onModeChanged(_Mode mode) {
+    if (mode == _mode) return;
+    setState(() {
+      _mode = mode;
+      _otherPotId = null;
+      if (_amountCtrl.text.isNotEmpty) {
+        _amountCtrl.value = const TextEditingValue(
+          text: '',
+          selection: TextSelection.collapsed(offset: 0),
+        );
+      }
+      _syncAssetRowsForGiver();
+    });
+  }
+
   void _onAmountChanged() {
     if (!mounted) return;
+    _syncAssetRowsForGiver();
     if (_amount <= 0.005) {
       _assetsUserEdited = false;
       for (final r in _assetRows) {
@@ -262,6 +365,40 @@ class _ReallocatePotSheetState extends State<ReallocatePotSheet> {
   void _onAssetChanged() {
     _assetsUserEdited = true;
     if (mounted) setState(() {});
+  }
+
+  /// Rebuilds [_assetRows] from [_giverPot]'s own positions whenever the
+  /// giver actually changes (mode switch, other-Pot pick, or an Adjust To
+  /// target flipping direction). A no-op if the giver hasn't changed, so
+  /// in-progress manual edits survive unrelated rebuilds (e.g. re-typing
+  /// the same amount).
+  void _syncAssetRowsForGiver() {
+    final giver = _giverPot;
+    final giverId = giver?.id;
+    if (giverId == _lastGiverPotId) return;
+    _lastGiverPotId = giverId;
+    for (final r in _assetRows) {
+      r.ctrl.dispose();
+    }
+    _assetRows.clear();
+    _assetsUserEdited = false;
+    if (giver == null) return;
+    for (final pos in giver.positions) {
+      final v = double.tryParse(pos.value) ?? 0;
+      if (v <= 0.001) continue;
+      final ctrl = TextEditingController();
+      ctrl.addListener(_onAssetChanged);
+      _assetRows.add(
+        _AssetRow(
+          accountAssetId: pos.accountAssetId,
+          assetName: pos.assetName,
+          accountName: pos.accountName,
+          available: v,
+          availableUnits: double.tryParse(pos.units) ?? 0,
+          ctrl: ctrl,
+        ),
+      );
+    }
   }
 
   void _autoFillAssetsProportionally() {
@@ -295,17 +432,17 @@ class _ReallocatePotSheetState extends State<ReallocatePotSheet> {
   }
 
   void _reset() {
+    _mode = _Mode.send;
     _assetsUserEdited = false;
-    _destPotId = null;
+    _otherPotId = null;
     if (_amountCtrl.text.isNotEmpty) {
       _amountCtrl.value = const TextEditingValue(
         text: '',
         selection: TextSelection.collapsed(offset: 0),
       );
     }
-    for (final r in _assetRows) {
-      _setAssetSilently(r.ctrl, '');
-    }
+    _lastGiverPotId = null;
+    _syncAssetRowsForGiver();
     setState(() {});
   }
 
@@ -313,8 +450,11 @@ class _ReallocatePotSheetState extends State<ReallocatePotSheet> {
 
   List<_Movement> _buildMovements() {
     final movements = <_Movement>[];
-    final destId = _destPotId;
-    if (destId == null) return movements;
+    final other = _otherPotId;
+    final isGiver = _selfIsGiver;
+    if (other == null || isGiver == null) return movements;
+    final fromId = isGiver ? widget.potId : other;
+    final toId = isGiver ? other : widget.potId;
     for (final r in _assetRows) {
       final v = double.tryParse(r.ctrl.text.trim()) ?? 0;
       if (v <= 0.001) continue;
@@ -329,7 +469,7 @@ class _ReallocatePotSheetState extends State<ReallocatePotSheet> {
         // that conversion can round either up (overshoots the true
         // units, which the backend's strict sufficiency check rejects)
         // or down (leaves a tiny fractional-unit residue behind, so the
-        // source Pot never actually reaches ₹0). Using the exact units
+        // giver Pot never actually reaches ₹0). Using the exact units
         // guarantees a clean, complete drain.
         units = r.availableUnits;
       } else {
@@ -341,8 +481,8 @@ class _ReallocatePotSheetState extends State<ReallocatePotSheet> {
       if (units <= 0) continue;
       movements.add((
         accountAssetId: r.accountAssetId,
-        fromPotId: widget.potId,
-        toPotId: destId,
+        fromPotId: fromId,
+        toPotId: toId,
         units: units.toStringAsFixed(6),
       ));
     }
@@ -380,11 +520,90 @@ class _ReallocatePotSheetState extends State<ReallocatePotSheet> {
   String _ctrlValue(double v) => v.abs() < 0.005 ? '' : _formatAmt(v);
 
   /// Always "Transfer" — matches the "Transfer" affordance that opened this
-  /// sheet, so the action keeps one consistent name end-to-end. Only its
-  /// enabled state + the trailing amount change as the form fills in.
+  /// sheet, so the action keeps one consistent name end-to-end regardless
+  /// of which of the three modes is active. Only its enabled state + the
+  /// trailing amount change as the form fills in.
   String get _ctaLabel {
-    if (_destPotId == null || _amount <= 0.005) return 'Transfer';
+    if (_otherPotId == null || _amount <= 0.005) return 'Transfer';
     return 'Transfer ₹${compactAmount(_amount)}';
+  }
+
+  String get _primaryFieldLabel =>
+      _mode == _Mode.adjustTo ? 'Target Amount' : 'Amount';
+
+  String get _otherPotFieldLabel {
+    switch (_mode) {
+      case _Mode.send:
+        return 'To Pot';
+      case _Mode.receive:
+        return 'From Pot';
+      case _Mode.adjustTo:
+        final isGiver = _selfIsGiver;
+        if (isGiver == true) return 'To Pot';
+        if (isGiver == false) return 'From Pot';
+        return 'Other Pot';
+    }
+  }
+
+  IconData get _arrowIcon {
+    switch (_mode) {
+      case _Mode.send:
+        return Icons.east_rounded;
+      case _Mode.receive:
+        return Icons.west_rounded;
+      case _Mode.adjustTo:
+        final isGiver = _selfIsGiver;
+        if (isGiver == true) return Icons.east_rounded;
+        if (isGiver == false) return Icons.west_rounded;
+        return Icons.sync_alt_rounded;
+    }
+  }
+
+  bool get _otherPotFieldEnabled {
+    switch (_mode) {
+      case _Mode.send:
+      case _Mode.receive:
+        return _rawInput > 0.005;
+      case _Mode.adjustTo:
+        return _amountCtrl.text.trim().isNotEmpty;
+    }
+  }
+
+  /// Small note shown under the target field in Adjust To mode only,
+  /// translating the typed target into the plain-English Send/Receive it
+  /// actually amounts to.
+  String? get _adjustToNote {
+    if (_mode != _Mode.adjustTo) return null;
+    if (_amountCtrl.text.trim().isEmpty) return null;
+    final isGiver = _selfIsGiver;
+    if (isGiver == null) return 'This Pot is already at this amount.';
+    final amt = compactAmount(_amount);
+    return isGiver
+        ? 'Send ₹$amt to another Pot'
+        : 'Receive ₹$amt from another Pot';
+  }
+
+  bool get _showBreakdown => _otherPotId != null && _giverPot != null;
+
+  String get _placeholderMessage {
+    if (_amountCtrl.text.trim().isEmpty) {
+      return _mode == _Mode.adjustTo
+          ? 'Enter a target amount for this Pot.'
+          : 'Enter an amount to transfer.';
+    }
+    if (_mode == _Mode.adjustTo && _selfIsGiver == null) {
+      return 'This Pot is already at that amount.';
+    }
+    switch (_mode) {
+      case _Mode.send:
+        return 'Select a Pot to transfer to.';
+      case _Mode.receive:
+        return 'Select a Pot to transfer from.';
+      case _Mode.adjustTo:
+        return _selfIsGiver == true
+            ? 'Select a Pot to send the extra amount to.'
+            : 'Select a Pot to receive the amount from.';
+    }
   }
 
   // ── Build ─────────────────────────────────────────────────────────────────
@@ -434,7 +653,7 @@ class _ReallocatePotSheetState extends State<ReallocatePotSheet> {
                 children: [
                   Expanded(
                     child: Text(
-                      'Reallocate Funds',
+                      'Transfer Funds',
                       style: theme.textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.w600,
                       ),
@@ -464,20 +683,29 @@ class _ReallocatePotSheetState extends State<ReallocatePotSheet> {
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 2, 20, 0),
               child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(
-                    resolvePotIcon(_iconKeyByPotId[widget.potId]),
-                    size: 14,
-                    color: cs.primary,
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Icon(
+                      resolvePotIcon(_iconKeyByPotId[widget.potId]),
+                      size: 14,
+                      color: cs.primary,
+                    ),
                   ),
                   const SizedBox(width: 4),
+                  // Wraps to a 2nd line instead of ellipsis-truncating when
+                  // a long Pot name + the current balance don't both fit on
+                  // one line — only an extreme combination (very long name
+                  // AND a very large balance) would still overflow past
+                  // that, which the ellipsis then catches as a last resort.
                   Flexible(
                     child: Text(
                       '${_sourcePot?.name ?? ''} · ₹${_formatAmt(_sourceValue)}',
                       style: theme.textTheme.bodyMedium?.copyWith(
                         color: cs.primary,
                       ),
-                      maxLines: 1,
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
@@ -487,15 +715,15 @@ class _ReallocatePotSheetState extends State<ReallocatePotSheet> {
             const SizedBox(height: 6),
             Divider(height: 1, color: cs.outlineVariant),
 
-            // ── STICKY TOP: transfer-to row ───────────────────────────────
+            // ── STICKY TOP: mode selector + amount/pot row ────────────────
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   _buildSourceAndTransferCard(theme, cs),
-                  if (_destPotId != null) ...[
-                    const SizedBox(height: 8),
+                  if (_showBreakdown) ...[
+                    const SizedBox(height: 14),
                     Text(
                       'ASSET BREAKDOWN',
                       style: theme.textTheme.labelSmall?.copyWith(
@@ -504,7 +732,17 @@ class _ReallocatePotSheetState extends State<ReallocatePotSheet> {
                         letterSpacing: 1.0,
                       ),
                     ),
-                    const SizedBox(height: 4),
+                    if (_giverPot != null && _giverPot!.id != widget.potId)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(
+                          'Funding from ${_giverPot!.name}',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: cs.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                    const SizedBox(height: 12),
                     Row(
                       children: [
                         const Spacer(),
@@ -527,14 +765,14 @@ class _ReallocatePotSheetState extends State<ReallocatePotSheet> {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 2),
+                    const SizedBox(height: 6),
                   ],
                 ],
               ),
             ),
 
             // ── SCROLLABLE asset breakdown list ──────────────────────────
-            if (_destPotId != null)
+            if (_showBreakdown)
               Expanded(
                 child: Container(
                   decoration: BoxDecoration(
@@ -713,9 +951,7 @@ class _ReallocatePotSheetState extends State<ReallocatePotSheet> {
                   child: Padding(
                     padding: const EdgeInsets.all(24),
                     child: Text(
-                      _amount <= 0.005
-                          ? 'Enter an amount to transfer.'
-                          : 'Select a Pot to transfer to.',
+                      _placeholderMessage,
                       textAlign: TextAlign.center,
                       style: theme.textTheme.bodyMedium?.copyWith(
                         color: cs.onSurfaceVariant,
@@ -731,7 +967,7 @@ class _ReallocatePotSheetState extends State<ReallocatePotSheet> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  if (_destPotId != null &&
+                  if (_showBreakdown &&
                       _amount > 0.005 &&
                       _remaining.abs() > 0.015) ...[
                     _buildRemainingIndicator(theme, cs),
@@ -793,10 +1029,10 @@ class _ReallocatePotSheetState extends State<ReallocatePotSheet> {
     );
   }
 
-  /// "Transfer [X] to [Dropdown]" row, per the simplified deduct-only
-  /// transfer flow. The source Pot's name + current balance are shown in
-  /// the sheet's header only (not repeated here), so the asset breakdown
-  /// below gets more vertical space.
+  /// Mode selector (Send / Receive / Adjust To) plus the "[Amount or
+  /// Target] [→ or ←] [Other Pot]" row. The source Pot's name + current
+  /// balance are shown in the sheet's header only (not repeated here), so
+  /// the asset breakdown below gets more vertical space.
   Widget _buildSourceAndTransferCard(ThemeData theme, ColorScheme cs) {
     return Container(
       padding: const EdgeInsets.all(10),
@@ -804,94 +1040,140 @@ class _ReallocatePotSheetState extends State<ReallocatePotSheet> {
         color: cs.surfaceContainerLow,
         borderRadius: BorderRadius.circular(12),
       ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Transfer',
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    color: cs.onSurfaceVariant,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                SizedBox(
-                  height: _fieldHeight,
-                  child: TextField(
-                    controller: _amountCtrl,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                      signed: false,
+          SizedBox(
+            width: double.infinity,
+            child: SegmentedButton<_Mode>(
+              segments: _Mode.values
+                  .map(
+                    (m) => ButtonSegment(
+                      value: m,
+                      icon: Icon(m.icon, size: 14),
+                      label: Text(m.label),
                     ),
-                    inputFormatters: [
-                      FilteringTextInputFormatter.allow(
-                        RegExp(r'^\d*\.?\d{0,2}'),
+                  )
+                  .toList(),
+              selected: {_mode},
+              showSelectedIcon: false,
+              style: SegmentedButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                textStyle: const TextStyle(fontSize: 12),
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                // A faint divider-weight border between segments instead of
+                // the default strong outline — the selected segment's
+                // filled background alone is enough to show the active
+                // mode, so the border shouldn't compete for attention.
+                side: BorderSide(color: cs.outlineVariant.withAlpha(110)),
+                selectedBackgroundColor: cs.primary,
+                selectedForegroundColor: cs.onPrimary,
+              ),
+              onSelectionChanged: (sel) => _onModeChanged(sel.first),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _primaryFieldLabel,
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: cs.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    SizedBox(
+                      height: _fieldHeight,
+                      child: TextField(
+                        controller: _amountCtrl,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                          signed: false,
+                        ),
+                        inputFormatters: [
+                          FilteringTextInputFormatter.allow(
+                            RegExp(r'^\d*\.?\d{0,2}'),
+                          ),
+                        ],
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                        decoration: InputDecoration(
+                          isDense: true,
+                          prefixText: '₹ ',
+                          hintText: '0',
+                          enabledBorder: _primaryFieldError != null
+                              ? OutlineInputBorder(
+                                  borderSide: BorderSide(
+                                    color: cs.error,
+                                    width: 1.5,
+                                  ),
+                                  borderRadius: BorderRadius.circular(8),
+                                )
+                              : null,
+                          focusedBorder: _primaryFieldError != null
+                              ? OutlineInputBorder(
+                                  borderSide: BorderSide(
+                                    color: cs.error,
+                                    width: 2,
+                                  ),
+                                  borderRadius: BorderRadius.circular(8),
+                                )
+                              : null,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 10,
+                          ),
+                        ),
+                      ),
+                    ),
+                    if (_primaryFieldError != null) ...[
+                      const SizedBox(height: 3),
+                      Text(
+                        _primaryFieldError!,
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: cs.error,
+                        ),
+                      ),
+                    ] else if (_adjustToNote != null) ...[
+                      const SizedBox(height: 3),
+                      Text(
+                        _adjustToNote!,
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: cs.onSurfaceVariant,
+                        ),
                       ),
                     ],
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                    decoration: InputDecoration(
-                      isDense: true,
-                      prefixText: '₹ ',
-                      hintText: '0',
-                      enabledBorder: _amountError != null
-                          ? OutlineInputBorder(
-                              borderSide: BorderSide(
-                                color: cs.error,
-                                width: 1.5,
-                              ),
-                              borderRadius: BorderRadius.circular(8),
-                            )
-                          : null,
-                      focusedBorder: _amountError != null
-                          ? OutlineInputBorder(
-                              borderSide: BorderSide(color: cs.error, width: 2),
-                              borderRadius: BorderRadius.circular(8),
-                            )
-                          : null,
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 10,
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              Padding(
+                padding: const EdgeInsets.only(top: 32),
+                child: Icon(_arrowIcon, size: 16, color: cs.outlineVariant),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _otherPotFieldLabel,
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: cs.onSurfaceVariant,
                       ),
                     ),
-                  ),
+                    const SizedBox(height: 2),
+                    _buildOtherPotField(theme, cs),
+                  ],
                 ),
-                if (_amountError != null) ...[
-                  const SizedBox(height: 3),
-                  Text(
-                    _amountError!,
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: cs.error,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          const SizedBox(width: 10),
-          Padding(
-            padding: const EdgeInsets.only(top: 32),
-            child: Icon(Icons.east_rounded, size: 16, color: cs.outlineVariant),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'To Pot',
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    color: cs.onSurfaceVariant,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                _buildDestPotField(theme, cs),
-              ],
-            ),
+              ),
+            ],
           ),
         ],
       ),
@@ -901,17 +1183,17 @@ class _ReallocatePotSheetState extends State<ReallocatePotSheet> {
   /// Tappable field styled to match the amount `TextField` beside it
   /// (same height/border/radius), opening a polished bottom-sheet picker
   /// instead of a plain `DropdownButton` popup. Disabled (muted, inert)
-  /// until an amount has been entered, per the deduct-first flow.
-  Widget _buildDestPotField(ThemeData theme, ColorScheme cs) {
-    final enabled = _amount > 0.005;
-    final selected = _destPotId != null ? _findPot(_destPotId!) : null;
+  /// until an amount (or, in Adjust To, a target) has been entered.
+  Widget _buildOtherPotField(ThemeData theme, ColorScheme cs) {
+    final enabled = _otherPotFieldEnabled;
+    final selected = _otherPot;
     // Disabled and "enabled but nothing picked yet" must look clearly
     // different — a muted border + muted hint alone reads as disabled
     // either way. Disabled gets a flat grey fill; enabled gets a crisper,
     // darker border (matching a normal active input) and a tinted chevron
     // so it visibly invites a tap even before anything is selected.
     return InkWell(
-      onTap: enabled ? _pickDestinationPot : null,
+      onTap: enabled ? _pickOtherPot : null,
       borderRadius: BorderRadius.circular(8),
       child: Container(
         height: _fieldHeight,
@@ -956,12 +1238,27 @@ class _ReallocatePotSheetState extends State<ReallocatePotSheet> {
     );
   }
 
-  /// Polished destination-Pot picker — a rounded bottom sheet listing every
+  /// Polished other-Pot picker — a rounded bottom sheet listing every
   /// eligible Pot (icon, name, current value, a check mark on the current
   /// selection), replacing the default unstyled `DropdownButton` popup.
-  Future<void> _pickDestinationPot() async {
+  /// Its title adapts to the current mode/direction.
+  Future<void> _pickOtherPot() async {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+    final title = switch (_otherPotFieldLabel) {
+      'To Pot' => 'Transfer To',
+      'From Pot' => 'Transfer From',
+      _ => 'Select Pot',
+    };
+    // Only a "From Pot" pick (Receive, or an Adjust To that resolves to
+    // receiving) is capped by the other Pot's own balance — a "To Pot" pick
+    // has no such ceiling, since any Pot can always receive money. Pots
+    // below the required amount stay visible in the list (never filtered
+    // out) but can't be tapped to select, per the deduct-first flow's
+    // existing safety net (the amount field already errors if an
+    // already-selected Pot later turns out insufficient).
+    final needsSufficientBalance = _otherPotFieldLabel == 'From Pot';
+    final requiredAmount = _amount;
     final picked = await showModalBottomSheet<String>(
       context: context,
       useSafeArea: true,
@@ -990,7 +1287,7 @@ class _ReallocatePotSheetState extends State<ReallocatePotSheet> {
                 child: Align(
                   alignment: Alignment.centerLeft,
                   child: Text(
-                    'Transfer To',
+                    title,
                     style: theme.textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.w600,
                     ),
@@ -1002,7 +1299,7 @@ class _ReallocatePotSheetState extends State<ReallocatePotSheet> {
                 child: ListView.separated(
                   shrinkWrap: true,
                   padding: const EdgeInsets.symmetric(vertical: 4),
-                  itemCount: _destPots.length,
+                  itemCount: _otherPots.length,
                   separatorBuilder: (_, _) => Divider(
                     height: 1,
                     indent: 20,
@@ -1010,61 +1307,92 @@ class _ReallocatePotSheetState extends State<ReallocatePotSheet> {
                     color: cs.outlineVariant.withAlpha(100),
                   ),
                   itemBuilder: (context, i) {
-                    final p = _destPots[i];
-                    final isSelected = p.id == _destPotId;
+                    final p = _otherPots[i];
+                    final isSelected = p.id == _otherPotId;
+                    final potValue = _potValue(p);
+                    final isInsufficient =
+                        needsSufficientBalance &&
+                        potValue < requiredAmount - 0.005;
                     return InkWell(
-                      onTap: () => Navigator.of(ctx).pop(p.id),
-                      child: Container(
-                        color: isSelected
-                            ? cs.primaryContainer.withAlpha(60)
-                            : null,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 20,
-                          vertical: 12,
-                        ),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 34,
-                              height: 34,
-                              decoration: BoxDecoration(
-                                color: cs.primaryContainer.withAlpha(90),
-                                borderRadius: BorderRadius.circular(9),
-                              ),
-                              alignment: Alignment.center,
-                              child: Icon(
-                                resolvePotIcon(_iconKeyByPotId[p.id]),
-                                size: 17,
-                                color: cs.primary,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Text(
-                                p.name,
-                                style: theme.textTheme.bodyMedium?.copyWith(
-                                  fontWeight: FontWeight.w500,
+                      onTap: () {
+                        if (isInsufficient) {
+                          showTopSnack(
+                            ctx,
+                            'That Pot only has ₹${compactAmount(potValue)} '
+                            '— not enough to cover ₹${compactAmount(requiredAmount)}.',
+                          );
+                          return;
+                        }
+                        Navigator.of(ctx).pop(p.id);
+                      },
+                      child: Opacity(
+                        opacity: isInsufficient ? 0.45 : 1.0,
+                        child: Container(
+                          color: isSelected
+                              ? cs.primaryContainer.withAlpha(60)
+                              : null,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 20,
+                            vertical: 12,
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 34,
+                                height: 34,
+                                decoration: BoxDecoration(
+                                  color: cs.primaryContainer.withAlpha(90),
+                                  borderRadius: BorderRadius.circular(9),
                                 ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
+                                alignment: Alignment.center,
+                                child: Icon(
+                                  resolvePotIcon(_iconKeyByPotId[p.id]),
+                                  size: 17,
+                                  color: cs.primary,
+                                ),
                               ),
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              '₹${compactAmount(_potValue(p))}',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: cs.onSurfaceVariant,
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      p.name,
+                                      style: theme.textTheme.bodyMedium
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    if (isInsufficient)
+                                      Text(
+                                        'Not enough balance',
+                                        style: theme.textTheme.labelSmall
+                                            ?.copyWith(color: cs.error),
+                                      ),
+                                  ],
+                                ),
                               ),
-                            ),
-                            if (isSelected) ...[
                               const SizedBox(width: 8),
-                              Icon(
-                                Icons.check_circle_rounded,
-                                size: 18,
-                                color: cs.primary,
+                              Text(
+                                '₹${compactAmount(potValue)}',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: isInsufficient
+                                      ? cs.error
+                                      : cs.onSurfaceVariant,
+                                ),
                               ),
+                              if (isSelected) ...[
+                                const SizedBox(width: 8),
+                                Icon(
+                                  Icons.check_circle_rounded,
+                                  size: 18,
+                                  color: cs.primary,
+                                ),
+                              ],
                             ],
-                          ],
+                          ),
                         ),
                       ),
                     );
@@ -1078,17 +1406,32 @@ class _ReallocatePotSheetState extends State<ReallocatePotSheet> {
       },
     );
     if (picked != null && mounted) {
-      setState(() => _destPotId = picked);
+      setState(() {
+        _otherPotId = picked;
+        _syncAssetRowsForGiver();
+        if (_amount > 0.005 && !_assetsUserEdited) {
+          _autoFillAssetsProportionally();
+        }
+      });
     }
   }
 
-  /// Single-line asset row: Name/Account  ₹Xk available  [field]  ↓
+  /// Single-line asset row: Name/Account  ₹Xk available  [field]  →
+  ///
+  /// The trailing arrow is always "outward" (→), regardless of mode —
+  /// this breakdown is always built from the GIVER Pot's own holdings
+  /// (this Pot for Send, the picked Pot for Receive / a receiving Adjust
+  /// To), so every row always reads as "this amount leaves this holding,"
+  /// never the other way round. Unlike the main field's [_arrowIcon]
+  /// (which does flip to show the overall move's direction relative to
+  /// THIS Pot), there's nothing direction-dependent to show here.
   Widget _buildAssetRow({
     required ThemeData theme,
     required ColorScheme cs,
     required _AssetRow row,
   }) {
     final error = _assetError(row);
+    final isExpanded = _expandedAssetIds.contains(row.accountAssetId);
     return Padding(
       padding: const EdgeInsets.only(bottom: 18),
       child: Column(
@@ -1098,26 +1441,35 @@ class _ReallocatePotSheetState extends State<ReallocatePotSheet> {
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      row.assetName,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w500,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(6),
+                  onTap: () => setState(() {
+                    if (isExpanded) {
+                      _expandedAssetIds.remove(row.accountAssetId);
+                    } else {
+                      _expandedAssetIds.add(row.accountAssetId);
+                    }
+                  }),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      ExpandableNameText(
+                        row.assetName,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w500,
+                        ),
+                        expanded: isExpanded,
                       ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    Text(
-                      row.accountName,
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        color: cs.onSurfaceVariant,
+                      Text(
+                        row.accountName,
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: cs.onSurfaceVariant,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
               Padding(
@@ -1160,7 +1512,7 @@ class _ReallocatePotSheetState extends State<ReallocatePotSheet> {
               ),
               const SizedBox(width: 4),
               Icon(
-                Icons.arrow_downward_rounded,
+                Icons.east_rounded,
                 size: 13,
                 color: cs.onSurfaceVariant.withAlpha(160),
               ),

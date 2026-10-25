@@ -14,8 +14,44 @@ import 'reallocate_pot_sheet.dart';
 /// currently have allocated toward each goal?". Deliberately shows ONLY
 /// current value: no invested amount, gain/loss, or units anywhere here
 /// (explicit simplification per spec).
-class PotsTab extends StatelessWidget {
+class PotsTab extends StatefulWidget {
   const PotsTab({super.key});
+
+  @override
+  State<PotsTab> createState() => _PotsTabState();
+}
+
+class _PotsTabState extends State<PotsTab> {
+  /// At most one Pot card is expanded at a time — lifted here (rather than
+  /// each card owning its own expand flag) specifically so expanding one
+  /// Pot always collapses whichever other one was previously expanded, and
+  /// so unrelated interactions elsewhere on this tab (scrolling, tapping
+  /// the header/banner) can reliably collapse it too.
+  String? _expandedPotId;
+  final ScrollController _scrollController = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_collapseExpanded);
+  }
+
+  @override
+  void dispose() {
+    _scrollController.removeListener(_collapseExpanded);
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _toggleExpanded(String potId) {
+    setState(() {
+      _expandedPotId = _expandedPotId == potId ? null : potId;
+    });
+  }
+
+  void _collapseExpanded() {
+    if (_expandedPotId != null) setState(() => _expandedPotId = null);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -38,15 +74,34 @@ class PotsTab extends StatelessWidget {
     final totalValue = double.tryParse(portfolio.totalPortfolioValue) ?? 0;
 
     return ListView(
+      controller: _scrollController,
       padding: AppInsets.screen,
       children: [
-        _TotalPortfolioHeader(totalValue: totalValue),
+        // A plain tap on the header or banner counts as "anywhere else" —
+        // collapses whichever Pot card is currently expanded. Sibling-level
+        // (not wrapping the cards), so it never competes with a card's own
+        // tap handling.
+        GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onTap: _collapseExpanded,
+          child: _TotalPortfolioHeader(totalValue: totalValue),
+        ),
         const SizedBox(height: 14),
         ...portfolio.pots.map(
-          (p) => _PotCard(pot: p, canReallocate: portfolio.pots.length > 1),
+          (p) => _PotCard(
+            pot: p,
+            canReallocate: portfolio.pots.length > 1,
+            expanded: _expandedPotId == p.id,
+            onToggle: () => _toggleExpanded(p.id),
+            onCollapse: _collapseExpanded,
+          ),
         ),
         const SizedBox(height: 4),
-        const _InfoBanner(),
+        GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onTap: _collapseExpanded,
+          child: const _InfoBanner(),
+        ),
       ],
     );
   }
@@ -163,8 +218,14 @@ class _TotalPortfolioHeader extends StatelessWidget {
   }
 }
 
-class _PotCard extends StatefulWidget {
-  const _PotCard({required this.pot, required this.canReallocate});
+class _PotCard extends StatelessWidget {
+  const _PotCard({
+    required this.pot,
+    required this.canReallocate,
+    required this.expanded,
+    required this.onToggle,
+    required this.onCollapse,
+  });
 
   final InvestmentsPotDto pot;
 
@@ -173,18 +234,22 @@ class _PotCard extends StatefulWidget {
   /// to. See investments_pot_amounts_different_approach.log.
   final bool canReallocate;
 
-  @override
-  State<_PotCard> createState() => _PotCardState();
-}
+  /// Controlled from `PotsTab` — at most one card is expanded at a time.
+  final bool expanded;
 
-class _PotCardState extends State<_PotCard> {
-  bool _expanded = false;
+  /// Tapping this card: expand it (collapsing whichever other card was
+  /// previously expanded), or collapse it if it's already the one open.
+  final VoidCallback onToggle;
+
+  /// Explicitly collapses this (or any) card — wired into the Edit and
+  /// Transfer actions below so opening either sheet always leaves the
+  /// card collapsed underneath, rather than visually staying expanded.
+  final VoidCallback onCollapse;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-    final pot = widget.pot;
     final value = double.tryParse(pot.currentValue) ?? 0;
 
     return Card(
@@ -194,7 +259,7 @@ class _PotCardState extends State<_PotCard> {
         // Single tap target for the whole card: reveals the full Pot name
         // (the edit icon below keeps its own independent tap, same
         // well-established nested-gesture behavior used elsewhere).
-        onTap: () => setState(() => _expanded = !_expanded),
+        onTap: onToggle,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
           child: Column(
@@ -231,7 +296,7 @@ class _PotCardState extends State<_PotCard> {
                                 style: theme.textTheme.titleMedium?.copyWith(
                                   fontWeight: FontWeight.w600,
                                 ),
-                                expanded: _expanded,
+                                expanded: expanded,
                               ),
                             ),
                             const SizedBox(width: 4),
@@ -241,13 +306,16 @@ class _PotCardState extends State<_PotCard> {
                             // over the card's tap when tapped precisely on it
                             // (standard nested-gesture behavior).
                             InkWell(
-                              onTap: () => showEditInvestmentsPotSheet(
-                                context,
-                                potId: pot.id,
-                                currentName: pot.name,
-                                currentDescription: pot.description,
-                                currentIconKey: pot.iconKey,
-                              ),
+                              onTap: () {
+                                onCollapse();
+                                showEditInvestmentsPotSheet(
+                                  context,
+                                  potId: pot.id,
+                                  currentName: pot.name,
+                                  currentDescription: pot.description,
+                                  currentIconKey: pot.iconKey,
+                                );
+                              },
                               borderRadius: BorderRadius.circular(6),
                               child: Padding(
                                 padding: const EdgeInsets.all(2),
@@ -292,12 +360,12 @@ class _PotCardState extends State<_PotCard> {
               // Hidden entirely both when there's nowhere to send units to
               // (single-Pot portfolio) and when this Pot has nothing to
               // transfer out in the first place.
-              if (widget.canReallocate && value > 0.005)
+              if (canReallocate && value > 0.005)
                 AnimatedSize(
                   duration: const Duration(milliseconds: 220),
                   curve: Curves.easeOutCubic,
                   alignment: Alignment.topCenter,
-                  child: _expanded
+                  child: expanded
                       ? Padding(
                           padding: const EdgeInsets.only(top: 12),
                           child: Column(
@@ -311,15 +379,18 @@ class _PotCardState extends State<_PotCard> {
                               Align(
                                 alignment: Alignment.centerRight,
                                 child: ElevatedButton.icon(
-                                  onPressed: () => showReallocatePotSheet(
-                                    context,
-                                    potId: pot.id,
-                                  ),
+                                  onPressed: () {
+                                    onCollapse();
+                                    showReallocatePotSheet(
+                                      context,
+                                      potId: pot.id,
+                                    );
+                                  },
                                   icon: const Icon(
                                     Icons.sync_alt_rounded,
                                     size: 18,
                                   ),
-                                  label: const Text('Transfer'),
+                                  label: const Text('Transfer Funds'),
                                   style: ElevatedButton.styleFrom(
                                     backgroundColor: cs.primaryContainer,
                                     foregroundColor: cs.onPrimaryContainer,
