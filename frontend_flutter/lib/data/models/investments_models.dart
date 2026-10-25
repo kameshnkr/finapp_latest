@@ -319,6 +319,90 @@ class InvestmentsTradesPageDto {
   }
 }
 
+// ══════════════════════════════════════════════════════════════════════════
+// Pot Reallocation — GET/POST /api/investments/reallocation. Field names
+// mirror investmentsReallocationService.ts exactly. See
+// backend/logics/investments_logics/investments_pot_amounts_v2.log for the
+// full design (direct investments_pot_positions adjustment, no ledger
+// transactions created).
+// ══════════════════════════════════════════════════════════════════════════
+
+/// One (account, asset) position held by a Pot, already excluding
+/// zero-unit holdings and priceless assets (server-side) — every entry here
+/// is guaranteed reallocatable.
+class InvestmentsReallocationPositionDto {
+  InvestmentsReallocationPositionDto({
+    required this.accountAssetId,
+    required this.accountName,
+    required this.assetName,
+    required this.assetClass,
+    required this.units,
+    required this.price,
+    required this.value,
+  });
+
+  final String accountAssetId;
+  final String accountName;
+  final String assetName;
+  final String assetClass;
+  final String units;
+  final String price;
+  final String value;
+
+  factory InvestmentsReallocationPositionDto.fromJson(Map<String, dynamic> j) =>
+      InvestmentsReallocationPositionDto(
+        accountAssetId: j['accountAssetId'] as String,
+        accountName: j['accountName'] as String,
+        assetName: j['assetName'] as String,
+        assetClass: j['assetClass'] as String,
+        units: j['units'] as String,
+        price: j['price'] as String,
+        value: j['value'] as String,
+      );
+}
+
+/// One ACTIVE Pot's current value + full position breakdown, as needed to
+/// drive every default split/bound/cap in the guided reallocation UI
+/// entirely client-side (no further round-trips until the final submit).
+class InvestmentsReallocationPotDto {
+  InvestmentsReallocationPotDto({
+    required this.id,
+    required this.name,
+    required this.currentValue,
+    required this.positions,
+  });
+
+  final String id;
+  final String name;
+  final String currentValue;
+  final List<InvestmentsReallocationPositionDto> positions;
+
+  factory InvestmentsReallocationPotDto.fromJson(Map<String, dynamic> j) {
+    final positions = (j['positions'] as List<dynamic>? ?? [])
+        .map((e) => InvestmentsReallocationPositionDto.fromJson(e as Map<String, dynamic>))
+        .toList();
+    return InvestmentsReallocationPotDto(
+      id: j['id'] as String,
+      name: j['name'] as String,
+      currentValue: j['currentValue'] as String,
+      positions: positions,
+    );
+  }
+}
+
+class InvestmentsReallocationDataDto {
+  InvestmentsReallocationDataDto({required this.pots});
+
+  final List<InvestmentsReallocationPotDto> pots;
+
+  factory InvestmentsReallocationDataDto.fromJson(Map<String, dynamic> j) {
+    final pots = (j['pots'] as List<dynamic>? ?? [])
+        .map((e) => InvestmentsReallocationPotDto.fromJson(e as Map<String, dynamic>))
+        .toList();
+    return InvestmentsReallocationDataDto(pots: pots);
+  }
+}
+
 /// Response of POST /api/investments/prices/refresh — mirrors
 /// PriceRefreshResult in investmentsPriceRefreshService.ts exactly.
 class InvestmentsPriceRefreshResultDto {

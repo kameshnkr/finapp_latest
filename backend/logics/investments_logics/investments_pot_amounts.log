@@ -1,0 +1,122 @@
+Goal: we have to implement the reallocate/transfer the amounts between pots, without effecting the actual net asset units or amounts.
+
+Approach:
+UI flow:
+    - On pots card, near the amount, there will be a button to "Modify Allocation".
+    - On clicking the button, a modal will open with this guided journey:
+        Current amount: <current amount> --> Target amount: [<input field for target amount>]
+        --> Transfer to pot / Deduct from pot: [<dropdown for target pot>]
+        Once user entered the target amount is same, no need to show anything,
+        If user entered value is less than current amount, then show a button with this text: "Transfer <difference amount> to <target pot>".
+
+        once user clicked on it, it shoule show view to select the distrubition from the assets to be transferred to the target pot, to collect from each asset how much amount needs to be deducted or added
+
+
+
+Example scenarios(User want to reduce the amount):
+Current values:
+    - Pot 1: 100rs 
+        --> asset 1: 6 units, 10rs price = 60rs
+        --> asset 2: 8 units, 5rs price = 40rs
+    - Pot 2: 0rs
+    - Pot 3: 0rs
+    Total Asset wise:
+        --> asset 1: 6 units, 10rs price = 60rs
+        --> asset 2: 8 units, 5rs price = 40rs
+
+User wants to keep only 80rs in Pot 1.
+
+User selects "Modify Allocation"
+    Screen 1:
+        Current amount: 100rs --> Target amount: 80rs (Deduct 20rs from Pot 1)
+        Transfer to other pots:
+            pot 2: [] enters 10rs
+            pot 3: [] enters 10rs
+            with guided values like remaingng to distribute etc while user is entering the values in target pots.
+            once the sum of user entered values equals to the amount needs to be deducted, then show a button with test "Next"
+
+    Next screen:
+        Asset-pot breakdown
+        asset1: deduct [15rs]
+        //Show target pots breakdown with prefilled values which user can change(prefill logic would be, equally dividing the amount being deducted.
+            pot 2: [7.5rs] --> 7.5/10 = 0.75 units
+            pot 3: [7.5rs] --> 7.5/10 = 0.75 units
+        asset2: deduct [5rs]
+            pot 2: [2.5rs] --> 2.5/5 = 0.5 units
+            pot 3: [2.5rs] --> 2.5/5 = 0.5 units
+        "Review" button.
+
+    Next screen:
+        Show the summary of the changes and show a button with text "Proceed"
+    
+    Execute the transfer operation by creating the new sell and buy transactions for each affecting assets with current prices and assign respective pots as well for each transaction.
+
+i.e the resulting transactions would be:
+    Sell asset 1: 0.75 units, 10rs price = 7.5rs, pot1
+    Sell asset 1: 0.75 units, 10rs price = 7.5rs, pot1
+    Sell asset 2: 0.5 units, 5rs price = 2.5rs, pot1,
+    Sell asset 2: 0.5 units, 5rs price = 2.5rs, pot1,
+    Buy asset 1: 0.75 units, 10rs price = 7.5rs, pot2
+    Buy asset 1: 0.75 units, 10rs price = 7.5rs, pot3,
+    Buy asset 2: 0.5 units, 5rs price = 2.5rs, pot2,
+    Buy asset 2: 0.5 units, 5rs price = 2.5rs, pot3,
+
+---------------------------------
+
+Example scenario(User want to increase the amount):
+Current values:
+    - Pot 1: 100rs 
+        --> asset 1: 6 units, 10rs price = 60rs
+        --> asset 2: 8 units, 5rs price = 40rs
+    - Pot 2: 200rs
+        --> asset 1: 5 units, 10rs price = 50rs
+        --> asset 2: 30 units, 5rs price = 150rs
+    - Pot 3: 300rs
+        --> asset 1: 5 units, 10rs price = 50rs
+        --> asset 2: 50 units, 5rs price = 250
+    Total Asset wise:
+        --> asset 1: 16 units, 10rs price = 160rs
+        --> asset 2: 88 units, 5rs price = 440rs
+
+User wants to increase the Pot 2 to 250rs
+
+User selects "Modify Allocation"
+    Screen 1:
+        Current amount: 200rs --> Target amount: 250rs (Add 50rs to Pot 2)
+        deduct from pots:
+            pot 1: [] enters 25rs
+            pot 3: [] enters 25rs
+            with guided values like remaining amount to enter to deduct from other pots etc while user is entering the values in source pots.
+            once the sum of user entered values equals to the amount needs to be deducted from other pots, then show a button with text "Next"
+
+    Next screen:
+        Pot-asset breakdown
+        pot 1: deduct [25rs]
+        //Show target assets breakdown with prefilled values which user can change(prefill logic would be, equally dividing the amount being deducted from each asset or the max available amount in the asset)
+            asset 1: [12.5rs or max available] --> 12.5/10 = 1.25 units
+            asset 2: [12.5rs or max available] --> 12.5/5 = 2.5 units
+
+        pot 3: deduct [25rs]
+        //Show target assets breakdown with prefilled values which user can change(prefill logic would be, equally dividing the amount being deducted from each asset or the max available amount in the asset)
+            asset 1: [12.5rs or max available] --> 12.5/10 = 1.25 units
+            asset 2: [12.5rs or max available] --> 12.5/5 = 2.5 units
+        
+        
+        ---
+        "Review" button.
+
+    Next screen:
+        Show the summary of the changes and show a button with text "Proceed"
+
+    Execute the transfer operation by creating the new sell and buy transactions for each affecting assets with current prices and assign respective pots as well for each transaction.
+    
+    i.e the resulting transactions would be:
+        Sell asset 1: 1.25 units, 10rs price = 12.5rs, pot1
+        Sell asset 1: 1.25 units, 10rs price = 12.5rs, pot3 
+        Sell asset 2: 2.5 units, 5rs price = 12.5rs, pot1
+        Sell asset 2: 2.5 units, 5rs price = 12.5rs, pot3
+
+        Buy asset 1: 1.25 units, 10rs price = 12.5rs, pot2 (from pot1's sell)
+        Buy asset 1: 1.25 units, 10rs price = 12.5rs, pot2 (from pot3's sell)
+        Buy asset 2: 2.5 units, 5rs price = 12.5rs, pot2 (from pot1's sell)
+        Buy asset 2: 2.5 units, 5rs price = 12.5rs, pot2 (from pot3's sell)

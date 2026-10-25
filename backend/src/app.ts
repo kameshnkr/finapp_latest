@@ -14,6 +14,7 @@ import { investmentsAssetRouter } from "./routes/investmentsAssetRoutes.js";
 import { investmentsUploadRouter } from "./routes/investmentsUploadRoutes.js";
 import { investmentsTradeRouter } from "./routes/investmentsTradeRoutes.js";
 import { investmentsPriceRouter } from "./routes/investmentsPriceRoutes.js";
+import { investmentsReallocationRouter } from "./routes/investmentsReallocationRoutes.js";
 
 function buildCorsOptions(): CorsOptions {
   const common: CorsOptions = {
@@ -55,6 +56,7 @@ export function createApp() {
   app.use("/api/investments/uploads", investmentsUploadRouter);
   app.use("/api/investments/trades", investmentsTradeRouter);
   app.use("/api/investments/prices", investmentsPriceRouter);
+  app.use("/api/investments/reallocation", investmentsReallocationRouter);
 
   app.use(errorHandler);
   return app;

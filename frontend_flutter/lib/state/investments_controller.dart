@@ -195,4 +195,18 @@ class InvestmentsController extends ChangeNotifier {
       return null;
     }
   }
+
+  /// Executes a fully-resolved pot-to-pot unit reallocation (see
+  /// ReallocatePotPage — the guided UI computes every movement locally,
+  /// this just submits the final atomic batch) and refreshes Pot/Asset
+  /// current values afterward. Throws on failure (e.g. insufficient units,
+  /// a Pot archived mid-flow) — the caller shows the message inline,
+  /// mirroring the trades-allocate sheet's pattern.
+  Future<int> reallocate({
+    required List<({String accountAssetId, String fromPotId, String toPotId, String units})> movements,
+  }) async {
+    final count = await _api.executeReallocation(movements: movements);
+    await _quietRefresh();
+    return count;
+  }
 }
