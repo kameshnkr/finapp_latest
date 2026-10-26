@@ -53,6 +53,38 @@ Dynamic placement of the Right side Pots dropdown and field title text:
         - Point the arrow to the left.
 
 
+------------------------------------------------------------------------------------------------
+Currently the asset breakdown is having limited vertical space and hardly two assets only visible in the screen when keypad is open.
+Lets split it into the two screen journey.
+
+So here is the flow:
+<Screen 1> changes:
+- Once user selects the to/from pot:
+    Show the info message below the amount field and top pot row saying: 
+    `
+    Transfering <x> amount from <From Pot> to <To Pot>
+    After Transfer:
+        <From Pot> will have <x> amount
+        <To Pot> will have <x> amount
+        //Feel free to modify the text as you see fit.
+    `
+    And then change the the button name to "Next" instead of Transfer.
+
+<Screen 2>
+Title section remains same as previous screen (but we have to place back option to go back to previous screen) place it smartly because already on top right corner there are two options (reset and cancel) so decide how to place these).
+--------------------------------
+`Transferring <x> amount from <From Pot> to <To Pot>`
+`Choose underlying asset transfers 
+ from the source pot - <From Pot> name` (Style properly for each text with respective visual weights, and feel free to change the phrasing also as well)
+ <Asset Breakdown Section> (same as previous screen, ensure that tiny arrow indicates scrol to down or up as well in place)
+    - Keep remaining functionality of this section same as earlier one.
+    Here we show Transfer <Amount> button.
+
+
+
+
+
+
 
 
 
