@@ -1,0 +1,28 @@
+Goal: Port investment pot reallocation UI flows to banking budget funds reallocation as well.
+
+Background:
+    actually, in banking section currently we have already reallocation of funds beween budgets at the level of single account.
+    I.e to modify allocations to a budget, we need to go to accounts tab and select the account first and then we have the option to reallocate funds of that account between budgets.
+    So, already the foundational backend is already in place most part.
+    This, going to accounts tab to reallocate is not good for user experience.
+
+Proposal:
+    - So we should present the reallocate/transfer option at the budget cards also and then let user to choose the portions of the amounts to be transferred from underlying accounts(here accounts are equivalent to account-assets in the investments section).
+
+    So the journey is faily same as the investments pots reallocation journey.
+    We present a button "Reallocate Funds" at below the funds available in budget detail screen(will decide to move it to budget card later, once the full journey in place).
+
+    On click:
+    Open the reallocate funds screen with two step process similar to the investments pots reallocation journey.
+    The UI functionality almost remains same as the investments (the switch, amount, to Budget dropdowns, info messages) and next button, and in second screen we show account breakdown etc..)
+
+    The primary difference in naming is 
+        - pots are equivalent to budgets in banking section.
+        - account-assets are equivalent to accounts in banking section.
+
+    Note:
+        - currently if you go through the existing reallocation flow in banking section per account one, there is an unallocated amount bucket, we don't need that in this flow, only show valid budgets only in to budget dropdown, i will ensure transfering if any amount present in unallocated to some budget before using this. later we can remove that unallocated feature altogether from account level reallocation flow.
+        - As part of this implementation, we should keep existing reallocation flow in accounts tab as it is and untouched.
+    
+
+    Please ask for any clarifications if needed, once you are clear only and once I confirmed only start implementing this.
