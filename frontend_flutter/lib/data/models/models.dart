@@ -48,10 +48,10 @@ class AllocationDto {
   final String amount;
 
   factory AllocationDto.fromJson(Map<String, dynamic> j) => AllocationDto(
-        budgetId: j['budgetId'] as String,
-        budgetName: j['budgetName'] as String,
-        amount: j['amount'] as String,
-      );
+    budgetId: j['budgetId'] as String,
+    budgetName: j['budgetName'] as String,
+    amount: j['amount'] as String,
+  );
 }
 
 class CategoryDto {
@@ -70,19 +70,20 @@ class CategoryDto {
   final String estimated;
   final String spent;
   final String remaining;
+
   /// 'fixed' | 'variable'
   final String categoryType;
   final int version;
 
   factory CategoryDto.fromJson(Map<String, dynamic> j) => CategoryDto(
-        id: j['id'] as String,
-        name: j['name'] as String,
-        estimated: j['estimated'] as String,
-        spent: j['spent'] as String,
-        remaining: j['remaining'] as String,
-        categoryType: j['categoryType'] as String? ?? 'variable',
-        version: j['version'] as int,
-      );
+    id: j['id'] as String,
+    name: j['name'] as String,
+    estimated: j['estimated'] as String,
+    spent: j['spent'] as String,
+    remaining: j['remaining'] as String,
+    categoryType: j['categoryType'] as String? ?? 'variable',
+    version: j['version'] as int,
+  );
 }
 
 class BudgetDto {
@@ -103,8 +104,10 @@ class BudgetDto {
 
   final String id;
   final String name;
+
   /// 'manual' | 'scheduled'
   final String resetType;
+
   /// Non-null for scheduled budgets: { type, date, is_last_day_of_month }
   final Map<String, dynamic>? resetSchedule;
   final String? periodStart;
@@ -112,6 +115,7 @@ class BudgetDto {
   final String estimated;
   final String spent;
   final String fundsAvailable;
+
   /// Number of accounts that have allocations to this budget
   final int allocationCount;
   final int version;
@@ -166,12 +170,15 @@ class TransactionDto {
   final String amount;
   final String status;
   final String? transactionType;
+
   /// Raw bank statement description (as printed in statement)
   final String? description;
+
   /// Human-friendly label extracted by LLM (e.g. "Meridian Restaurant")
   final String? descriptionReadable;
   final String? note;
   final String? settledAt;
+
   /// YYYY-MM-DD actual date from bank statement; null for manual transactions
   final String? transactionDate;
   final int version;
@@ -179,23 +186,23 @@ class TransactionDto {
   final String updatedAt;
 
   factory TransactionDto.fromJson(Map<String, dynamic> j) => TransactionDto(
-        id: j['id'] as String,
-        accountId: j['accountId'] as String,
-        budgetId: j['budgetId'] as String?,
-        categoryId: j['categoryId'] as String?,
-        direction: j['direction'] as String,
-        amount: j['amount'] as String,
-        status: j['status'] as String,
-        transactionType: j['transactionType'] as String?,
-        description: j['description'] as String?,
-        descriptionReadable: j['descriptionReadable'] as String?,
-        note: j['note'] as String?,
-        settledAt: j['settledAt'] as String?,
-        transactionDate: j['transactionDate'] as String?,
-        version: j['version'] as int,
-        createdAt: j['createdAt'] as String,
-        updatedAt: j['updatedAt'] as String,
-      );
+    id: j['id'] as String,
+    accountId: j['accountId'] as String,
+    budgetId: j['budgetId'] as String?,
+    categoryId: j['categoryId'] as String?,
+    direction: j['direction'] as String,
+    amount: j['amount'] as String,
+    status: j['status'] as String,
+    transactionType: j['transactionType'] as String?,
+    description: j['description'] as String?,
+    descriptionReadable: j['descriptionReadable'] as String?,
+    note: j['note'] as String?,
+    settledAt: j['settledAt'] as String?,
+    transactionDate: j['transactionDate'] as String?,
+    version: j['version'] as int,
+    createdAt: j['createdAt'] as String,
+    updatedAt: j['updatedAt'] as String,
+  );
 }
 
 class BudgetSnapshotDto {
@@ -224,6 +231,87 @@ class BudgetSnapshotDto {
         periodStart: j['periodStart'] as String?,
         periodEnd: j['periodEnd'] as String?,
       );
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// Budget Funds Reallocation — GET/POST /api/banking/reallocation. Field
+// names mirror bankingReallocationService.ts exactly. Budget ≈ Investments'
+// Pot, Account ≈ Investments' account-asset — see
+// backend/logics/banking_logics/banking_budget_funds_reallocation.log and
+// InvestmentsReallocationPotDto/InvestmentsReallocationPositionDto for the
+// parallel shape.
+// ══════════════════════════════════════════════════════════════════════════
+
+/// One Account's current allocated amount to a given Budget, already
+/// excluding zero-or-negative allocations (server-side) — every entry here
+/// is guaranteed reallocatable.
+class BankingReallocationAllocationDto {
+  BankingReallocationAllocationDto({
+    required this.accountId,
+    required this.accountName,
+    required this.amount,
+  });
+
+  final String accountId;
+  final String accountName;
+  final String amount;
+
+  factory BankingReallocationAllocationDto.fromJson(Map<String, dynamic> j) =>
+      BankingReallocationAllocationDto(
+        accountId: j['accountId'] as String,
+        accountName: j['accountName'] as String,
+        amount: j['amount'] as String,
+      );
+}
+
+/// One Budget's current funds-available total + full per-account allocation
+/// breakdown, as needed to drive every default split/bound/cap in the
+/// guided reallocation UI entirely client-side (no further round-trips
+/// until the final submit).
+class BankingReallocationBudgetDto {
+  BankingReallocationBudgetDto({
+    required this.id,
+    required this.name,
+    required this.fundsAvailable,
+    required this.allocations,
+  });
+
+  final String id;
+  final String name;
+  final String fundsAvailable;
+  final List<BankingReallocationAllocationDto> allocations;
+
+  factory BankingReallocationBudgetDto.fromJson(Map<String, dynamic> j) {
+    final allocations = (j['allocations'] as List<dynamic>? ?? [])
+        .map(
+          (e) => BankingReallocationAllocationDto.fromJson(
+            e as Map<String, dynamic>,
+          ),
+        )
+        .toList();
+    return BankingReallocationBudgetDto(
+      id: j['id'] as String,
+      name: j['name'] as String,
+      fundsAvailable: j['fundsAvailable'] as String,
+      allocations: allocations,
+    );
+  }
+}
+
+class BankingReallocationDataDto {
+  BankingReallocationDataDto({required this.budgets});
+
+  final List<BankingReallocationBudgetDto> budgets;
+
+  factory BankingReallocationDataDto.fromJson(Map<String, dynamic> j) {
+    final budgets = (j['budgets'] as List<dynamic>? ?? [])
+        .map(
+          (e) =>
+              BankingReallocationBudgetDto.fromJson(e as Map<String, dynamic>),
+        )
+        .toList();
+    return BankingReallocationDataDto(budgets: budgets);
+  }
 }
 
 class StatementJobDto {
@@ -268,8 +356,9 @@ class StatementJobDto {
       status: j['status'] as String,
       message: j['message'] as String?,
       errorMessage: j['error_message'] as String?,
-      result:
-          resultMap != null ? StatementJobResultDto.fromJson(resultMap) : null,
+      result: resultMap != null
+          ? StatementJobResultDto.fromJson(resultMap)
+          : null,
       confirmationData: confirmMap != null
           ? StatementConfirmationDataDto.fromJson(confirmMap)
           : null,
@@ -343,11 +432,19 @@ class StatementConfirmationDataDto {
         totalExtracted: (j['total_extracted'] as num).toInt(),
         duplicatesSkipped: (j['duplicates_skipped'] as num).toInt(),
         pendingCount: (j['pending_count'] as num).toInt(),
-        acctDelta: j['acct_delta'] != null ? (j['acct_delta'] as num).toDouble() : null,
+        acctDelta: j['acct_delta'] != null
+            ? (j['acct_delta'] as num).toDouble()
+            : null,
         acctDummyType: j['acct_dummy_type'] as String?,
-        acctDbBalance: j['acct_db_balance'] != null ? (j['acct_db_balance'] as num).toDouble() : null,
-        acctProjectedBalance: j['acct_projected_balance'] != null ? (j['acct_projected_balance'] as num).toDouble() : null,
-        acctClosingBalance: j['acct_closing_balance'] != null ? (j['acct_closing_balance'] as num).toDouble() : null,
+        acctDbBalance: j['acct_db_balance'] != null
+            ? (j['acct_db_balance'] as num).toDouble()
+            : null,
+        acctProjectedBalance: j['acct_projected_balance'] != null
+            ? (j['acct_projected_balance'] as num).toDouble()
+            : null,
+        acctClosingBalance: j['acct_closing_balance'] != null
+            ? (j['acct_closing_balance'] as num).toDouble()
+            : null,
       );
 }
 

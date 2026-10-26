@@ -8,6 +8,7 @@ import { accountRouter } from "./routes/accountRoutes.js";
 import { budgetRouter } from "./routes/budgetRoutes.js";
 import { transactionRouter } from "./routes/transactionRoutes.js";
 import { statementRouter } from "./routes/statementRoutes.js";
+import { bankingReallocationRouter } from "./routes/bankingReallocationRoutes.js";
 import { investmentsPotRouter } from "./routes/investmentsPotRoutes.js";
 import { investmentsAccountRouter } from "./routes/investmentsAccountRoutes.js";
 import { investmentsAssetRouter } from "./routes/investmentsAssetRoutes.js";
@@ -48,6 +49,13 @@ export function createApp() {
   app.use("/api/budgets", budgetRouter);
   app.use("/api/transactions", transactionRouter);
   app.use("/api/statements", statementRouter);
+
+  // New user-controlled, multi-account Budget↔Budget transfer flow (Budget
+  // detail screen's "Reallocate Funds" button) — independent of both the
+  // existing per-account `/api/budgets/reallocate` (greedy, no user control)
+  // and the per-account Accounts-tab reallocation sheet, neither of which
+  // this touches. See banking_budget_funds_reallocation.log.
+  app.use("/api/banking/reallocation", bankingReallocationRouter);
 
   // ── Investments (parallel implementation — independent tables/services) ──
   app.use("/api/investments/pots", investmentsPotRouter);

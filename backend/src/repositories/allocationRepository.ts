@@ -141,3 +141,51 @@ export async function listAllocationsForBudget(
   );
   return r.rows;
 }
+
+/**
+ * Batch variant of [listAllocationsForBudget] — fetches every allocation row
+ * for a set of budgets in one query, grouped by budget_id. Used by
+ * bankingReallocationService.getReallocationData to build every Budget's
+ * full per-account breakdown without an N+1 query per budget (mirrors
+ * investmentsPositionRepository.listPotPositionDetailsForUser's batch shape).
+ */
+export async function listAllocationsForBudgetsBatch(
+  db: Db,
+  budgetIds: bigint[]
+): Promise<Map<string, AllocationRow[]>> {
+  if (budgetIds.length === 0) return new Map();
+  const r = await db.query<AllocationRow>(
+    `SELECT id, account_id, budget_id, amount::text, version, created_at
+     FROM account_budget_allocations
+     WHERE budget_id = ANY($1::bigint[])`,
+    [budgetIds]
+  );
+  const map = new Map<string, AllocationRow[]>();
+  for (const row of r.rows) {
+    const key = row.budget_id.toString();
+    const list = map.get(key) ?? [];
+    list.push(row);
+    map.set(key, list);
+  }
+  return map;
+}
+
+/**
+ * Current allocated amount for a single (account, budget) pair — the exact
+ * check needed before allowing funds to be moved OUT of that pair. Returns
+ * 0 when no allocation row exists yet.
+ */
+export async function getAllocationAmount(
+  db: Db,
+  accountId: bigint,
+  budgetId: bigint
+): Promise<number> {
+  const r = await db.query<{ amount: string }>(
+    `SELECT amount::text FROM account_budget_allocations WHERE account_id = $1 AND budget_id = $2`,
+    [accountId, budgetId]
+  );
+  const raw = r.rows[0]?.amount;
+  if (raw === undefined) return 0;
+  const v = parseFloat(raw);
+  return Number.isFinite(v) ? v : 0;
+}

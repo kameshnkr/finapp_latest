@@ -7,6 +7,7 @@ import '../../data/models/models.dart';
 import '../../core/snack_utils.dart';
 import '../../state/app_controller.dart';
 import '../../utils/amount_formatter.dart';
+import 'reallocate_budget_sheet.dart';
 
 class BudgetDetailScreen extends StatefulWidget {
   const BudgetDetailScreen({super.key, required this.budgetId});
@@ -39,7 +40,12 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
     final app = context.read<AppController>();
     try {
       final snaps = await app.api.fetchBudgetSnapshots(budgetId);
-      if (mounted) setState(() { _snapshots = snaps; _snapshotsLoaded = true; });
+      if (mounted) {
+        setState(() {
+          _snapshots = snaps;
+          _snapshotsLoaded = true;
+        });
+      }
     } catch (_) {
       if (mounted) setState(() => _snapshotsLoaded = true);
     }
@@ -53,11 +59,11 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
       return const Scaffold(body: Center(child: Text('Budget not found')));
     }
 
-    final planned   = double.tryParse(b.estimated) ?? 0;
-    final spent     = double.tryParse(b.spent) ?? 0;
+    final planned = double.tryParse(b.estimated) ?? 0;
+    final spent = double.tryParse(b.spent) ?? 0;
     final available = double.tryParse(b.fundsAvailable) ?? 0;
     final hasPlanned = planned > 0;
-    final pct        = hasPlanned ? (spent / planned).clamp(0.0, 1.0).toDouble() : 0.0;
+    final pct = hasPlanned ? (spent / planned).clamp(0.0, 1.0).toDouble() : 0.0;
     final overBudget = spent > planned && hasPlanned;
 
     return Scaffold(
@@ -65,19 +71,18 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
         title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Flexible(
-              child: Text(b.name,
-                  overflow: TextOverflow.ellipsis),
-            ),
+            Flexible(child: Text(b.name, overflow: TextOverflow.ellipsis)),
             const SizedBox(width: 6),
             InkWell(
               borderRadius: BorderRadius.circular(20),
               onTap: () => _showEditSheet(context, b),
               child: Padding(
                 padding: const EdgeInsets.all(4),
-                child: Icon(Icons.edit_outlined,
-                    size: 16,
-                    color: Theme.of(context).colorScheme.onSurfaceVariant),
+                child: Icon(
+                  Icons.edit_outlined,
+                  size: 16,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
               ),
             ),
           ],
@@ -96,6 +101,11 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
             hasPlanned: hasPlanned,
             pct: pct,
             overBudget: overBudget,
+            // Hides the "Reallocate Funds" affordance entirely (not just
+            // disables it) when the user has only a single Budget total —
+            // there's nowhere to send funds to. Mirrors Investments' Pot
+            // "Transfer" button (see pots_tab.dart's `canReallocate`).
+            canReallocate: app.budgets.length > 1,
           ),
           const SizedBox(height: 6),
 
@@ -125,9 +135,9 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
             children: [
               Text(
                 'Categories',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
               ),
               if (b.categories.isNotEmpty) ...[
                 const SizedBox(width: 8),
@@ -139,7 +149,8 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
                 icon: const Icon(Icons.add, size: 16),
                 label: const Text('Add New'),
                 style: TextButton.styleFrom(
-                    visualDensity: VisualDensity.compact),
+                  visualDensity: VisualDensity.compact,
+                ),
               ),
             ],
           ),
@@ -149,10 +160,7 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
           if (b.categories.isEmpty)
             _EmptyCategoriesHint()
           else
-            _CategoryConnectorList(
-              budgetId: b.id,
-              categories: b.categories,
-            ),
+            _CategoryConnectorList(budgetId: b.id, categories: b.categories),
 
           const SizedBox(height: 16),
         ],
@@ -169,7 +177,7 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
         content: Text(
           budget.resetType == 'scheduled'
               ? 'This will start a new period from today and clear all spending. '
-                'The next period end will follow your existing schedule.'
+                    'The next period end will follow your existing schedule.'
               : 'This will clear all spending and start fresh from today.',
         ),
         actions: [
@@ -210,16 +218,19 @@ class _BudgetDetailScreenState extends State<BudgetDetailScreen> {
               } catch (e) {
                 if (context.mounted) {
                   Navigator.pop(context); // close loader
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Reset failed: $e')),
-                  );
+                  ScaffoldMessenger.of(
+                    context,
+                  ).showSnackBar(SnackBar(content: Text('Reset failed: $e')));
                   return;
                 }
               }
               if (context.mounted) {
                 Navigator.pop(context); // close loader
                 // Invalidate snapshot cache so next open re-fetches
-                setState(() { _snapshots = []; _snapshotsLoaded = false; });
+                setState(() {
+                  _snapshots = [];
+                  _snapshotsLoaded = false;
+                });
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
                     content: Text('Budget reset successfully'),
@@ -321,7 +332,10 @@ class _ShowHistoryButtonState extends State<_ShowHistoryButton> {
             SizedBox(
               width: 11,
               height: 11,
-              child: CircularProgressIndicator(strokeWidth: 1.5, color: cs.primary),
+              child: CircularProgressIndicator(
+                strokeWidth: 1.5,
+                color: cs.primary,
+              ),
             )
           else
             Icon(Icons.history_rounded, size: 13, color: cs.primary),
@@ -341,6 +355,7 @@ class _ShowHistoryButtonState extends State<_ShowHistoryButton> {
 
 class _SnapshotDialog extends StatefulWidget {
   const _SnapshotDialog({required this.snapshots});
+
   /// Ordered oldest → newest (newest is rightmost).
   final List<BudgetSnapshotDto> snapshots;
 
@@ -350,7 +365,7 @@ class _SnapshotDialog extends StatefulWidget {
 
 class _SnapshotDialogState extends State<_SnapshotDialog> {
   late final ScrollController _sc;
-  static const double _cardW   = 300;
+  static const double _cardW = 300;
   static const double _cardGap = 10;
 
   @override
@@ -382,8 +397,8 @@ class _SnapshotDialogState extends State<_SnapshotDialog> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs    = theme.colorScheme;
-    final step  = _cardW + _cardGap;
+    final cs = theme.colorScheme;
+    final step = _cardW + _cardGap;
 
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
@@ -398,8 +413,9 @@ class _SnapshotDialogState extends State<_SnapshotDialog> {
               children: [
                 Text(
                   'Previous periods',
-                  style: theme.textTheme.titleMedium
-                      ?.copyWith(fontWeight: FontWeight.w700),
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
                 const Spacer(),
                 IconButton(
@@ -408,16 +424,15 @@ class _SnapshotDialogState extends State<_SnapshotDialog> {
                   iconSize: 18,
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints(),
-                  style: IconButton.styleFrom(foregroundColor: cs.onSurfaceVariant),
+                  style: IconButton.styleFrom(
+                    foregroundColor: cs.onSurfaceVariant,
+                  ),
                 ),
               ],
             ),
             const SizedBox(height: 14),
             if (widget.snapshots.length == 1)
-              _SnapshotCard(
-                snapshot: widget.snapshots.first,
-                fillWidth: true,
-              )
+              _SnapshotCard(snapshot: widget.snapshots.first, fillWidth: true)
             else
               SizedBox(
                 height: 130,
@@ -433,20 +448,20 @@ class _SnapshotDialogState extends State<_SnapshotDialog> {
               ),
             const SizedBox(height: 12),
             if (widget.snapshots.length > 1)
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                _NavButton(
-                  icon: Icons.chevron_left_rounded,
-                  onTap: () => _scrollBy(-step),
-                ),
-                const SizedBox(width: 8),
-                _NavButton(
-                  icon: Icons.chevron_right_rounded,
-                  onTap: () => _scrollBy(step),
-                ),
-              ],
-            ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  _NavButton(
+                    icon: Icons.chevron_left_rounded,
+                    onTap: () => _scrollBy(-step),
+                  ),
+                  const SizedBox(width: 8),
+                  _NavButton(
+                    icon: Icons.chevron_right_rounded,
+                    onTap: () => _scrollBy(step),
+                  ),
+                ],
+              ),
           ],
         ),
       ),
@@ -488,7 +503,9 @@ class _SnapshotCard extends StatelessWidget {
         ? DateTime.parse(snapshot.periodStart!)
         : null;
     final end = snapshot.periodEnd != null
-        ? DateTime.parse(snapshot.periodEnd!).subtract(const Duration(seconds: 1))
+        ? DateTime.parse(
+            snapshot.periodEnd!,
+          ).subtract(const Duration(seconds: 1))
         : null;
     if (start == null) return 'Unknown period';
     final fmt = (DateTime d) => '${_mon(d.month)} ${d.day}';
@@ -497,26 +514,37 @@ class _SnapshotCard extends StatelessWidget {
   }
 
   static String _mon(int m) => const [
-    '', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+    '',
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
   ][m];
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs    = theme.colorScheme;
+    final cs = theme.colorScheme;
 
-    final estimated      = double.tryParse(snapshot.estimated) ?? 0;
-    final spent          = double.tryParse(snapshot.spent) ?? 0;
-    final available      = double.tryParse(snapshot.fundsAvailable) ?? 0;
-    final hasPlanned     = estimated > 0;
-    final pct            = hasPlanned ? (spent / estimated).clamp(0.0, 1.0) : 0.0;
-    final overBudget     = spent > estimated && hasPlanned;
+    final estimated = double.tryParse(snapshot.estimated) ?? 0;
+    final spent = double.tryParse(snapshot.spent) ?? 0;
+    final available = double.tryParse(snapshot.fundsAvailable) ?? 0;
+    final hasPlanned = estimated > 0;
+    final pct = hasPlanned ? (spent / estimated).clamp(0.0, 1.0) : 0.0;
+    final overBudget = spent > estimated && hasPlanned;
     final estimatedColor = AppColors.number;
-    final spentColor     = spent == 0 ? cs.onSurfaceVariant : AppColors.loss;
+    final spentColor = spent == 0 ? cs.onSurfaceVariant : AppColors.loss;
     final availableColor = available < 0 ? AppColors.loss : AppColors.amount;
-    final barColor       = AppColors.loss.withAlpha(200);
-    final dividerColor   = cs.outlineVariant.withAlpha(80);
+    final barColor = AppColors.loss.withAlpha(200);
+    final dividerColor = cs.outlineVariant.withAlpha(80);
 
     return Container(
       width: fillWidth ? double.infinity : 300,
@@ -533,7 +561,9 @@ class _SnapshotCard extends StatelessWidget {
           // Period label
           Text(
             _periodLabel(),
-            style: theme.textTheme.labelSmall?.copyWith(color: cs.onSurfaceVariant),
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: cs.onSurfaceVariant,
+            ),
           ),
           const SizedBox(height: 10),
           // ── [Estimated+Spent] · [bar] | [Funds Available] ──────────────
@@ -573,7 +603,9 @@ class _SnapshotCard extends StatelessWidget {
                         children: [
                           Container(color: cs.surfaceContainerHighest),
                           FractionallySizedBox(
-                            heightFactor: hasPlanned ? pct.clamp(0.0, 1.0) : 0.0,
+                            heightFactor: hasPlanned
+                                ? pct.clamp(0.0, 1.0)
+                                : 0.0,
                             alignment: Alignment.bottomCenter,
                             child: Container(color: barColor),
                           ),
@@ -611,7 +643,9 @@ class _SnapshotCard extends StatelessWidget {
                 Text(
                   hasPlanned ? '${(pct * 100).round()}%' : '—',
                   style: theme.textTheme.labelSmall?.copyWith(
-                    color: overBudget ? Colors.red.shade700 : cs.onSurfaceVariant,
+                    color: overBudget
+                        ? Colors.red.shade700
+                        : cs.onSurfaceVariant,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -636,6 +670,7 @@ class _BudgetSummaryCard extends StatefulWidget {
     required this.hasPlanned,
     required this.pct,
     required this.overBudget,
+    required this.canReallocate,
   });
 
   final BudgetDto budget;
@@ -645,6 +680,10 @@ class _BudgetSummaryCard extends StatefulWidget {
   final bool hasPlanned;
   final double pct;
   final bool overBudget;
+
+  /// Hides the "Reallocate Funds" button entirely when the user only has
+  /// one Budget total.
+  final bool canReallocate;
 
   @override
   State<_BudgetSummaryCard> createState() => _BudgetSummaryCardState();
@@ -656,13 +695,15 @@ class _BudgetSummaryCardState extends State<_BudgetSummaryCard> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs    = theme.colorScheme;
+    final cs = theme.colorScheme;
 
     final estimatedColor = AppColors.number;
-    final spentColor     = widget.spent == 0 ? cs.onSurfaceVariant : AppColors.loss;
-    final availableColor = widget.available < 0 ? AppColors.loss : AppColors.amount;
-    final barColor       = AppColors.loss.withAlpha(200);
-    final dividerColor   = cs.outlineVariant.withAlpha(80);
+    final spentColor = widget.spent == 0 ? cs.onSurfaceVariant : AppColors.loss;
+    final availableColor = widget.available < 0
+        ? AppColors.loss
+        : AppColors.amount;
+    final barColor = AppColors.loss.withAlpha(200);
+    final dividerColor = cs.outlineVariant.withAlpha(80);
 
     final acctLabel = widget.budget.allocationCount == 0
         ? null
@@ -672,11 +713,13 @@ class _BudgetSummaryCardState extends State<_BudgetSummaryCard> {
     double fixedEst = 0, fixedSp = 0, varEst = 0, varSp = 0;
     for (final c in widget.budget.categories) {
       final est = double.tryParse(c.estimated) ?? 0;
-      final sp  = double.tryParse(c.spent) ?? 0;
+      final sp = double.tryParse(c.spent) ?? 0;
       if (c.categoryType == 'fixed') {
-        fixedEst += est; fixedSp += sp;
+        fixedEst += est;
+        fixedSp += sp;
       } else {
-        varEst += est; varSp += sp;
+        varEst += est;
+        varSp += sp;
       }
     }
     final hasCategories = widget.budget.categories.isNotEmpty;
@@ -699,7 +742,9 @@ class _BudgetSummaryCardState extends State<_BudgetSummaryCard> {
                     children: [
                       _StatRow(
                         label: 'Estimated',
-                        value: widget.hasPlanned ? compactAmount(widget.planned) : '—',
+                        value: widget.hasPlanned
+                            ? compactAmount(widget.planned)
+                            : '—',
                         valueColor: estimatedColor,
                       ),
                       const SizedBox(height: 8),
@@ -744,22 +789,51 @@ class _BudgetSummaryCardState extends State<_BudgetSummaryCard> {
                   overBudget: widget.overBudget,
                   barColor: barColor,
                 ),
-                // Right: Funds Available
+                // Right: everything in this column sits after the vertical
+                // divider — Funds Available, amount, "N accounts", and the
+                // Reallocate button — so the button lines up with the
+                // stats instead of starting under/left of the divider.
                 Expanded(
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Container(
-                          width: 0.5, height: 48, color: dividerColor),
-                      const SizedBox(width: 14),
-                      _StatColumn(
-                        label: 'Funds Available',
-                        value: compactAmount(widget.available),
-                        valueColor: availableColor,
-                        subtitle: acctLabel,
-                        icon: Icons.account_balance_wallet_outlined,
+                  child: Center(
+                    child: Padding(
+                      // Small right-nudge of the whole group without
+                      // overflowing the card (28px overflowed by ~1.5px).
+                      padding: const EdgeInsets.only(left: 12),
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: IntrinsicWidth(
+                          child: IntrinsicHeight(
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Container(width: 0.5, color: dividerColor),
+                                const SizedBox(width: 14),
+                                Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    _StatColumn(
+                                      label: 'Funds Available',
+                                      value: compactAmount(widget.available),
+                                      valueColor: availableColor,
+                                      subtitle: acctLabel,
+                                      icon:
+                                          Icons.account_balance_wallet_outlined,
+                                    ),
+                                    if (widget.canReallocate) ...[
+                                      const SizedBox(height: 8),
+                                      _ReallocateFundsButton(
+                                        budgetId: widget.budget.id,
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
                       ),
-                    ],
+                    ),
                   ),
                 ),
               ],
@@ -776,6 +850,41 @@ class _BudgetSummaryCardState extends State<_BudgetSummaryCard> {
             _PeriodRow(budget: widget.budget),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// "Reallocate Funds" entry point — opens the guided, multi-account Budget
+/// transfer flow (ported from Investments' Pot "Transfer" button; see
+/// `reallocate_budget_sheet.dart`). Deliberately compact (small icon/text,
+/// tight padding) since it sits inside the narrower "Funds Available"
+/// column rather than spanning the full card width.
+class _ReallocateFundsButton extends StatelessWidget {
+  const _ReallocateFundsButton({required this.budgetId});
+
+  final String budgetId;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return ElevatedButton.icon(
+      onPressed: () => showReallocateBudgetSheet(context, budgetId: budgetId),
+      icon: const Icon(Icons.sync_alt_rounded, size: 14),
+      label: const Text('Reallocate Funds'),
+      style: ElevatedButton.styleFrom(
+        // Same subtle, brand-blue-derived tint as Investments' Pot
+        // "Transfer Funds" button (see pots_tab.dart) — mixed heavily
+        // toward `cs.surface` rather than using `cs.primaryContainer`
+        // (which skews purple) or a solid `cs.primary` fill (too heavy).
+        backgroundColor: Color.lerp(cs.primary, cs.surface, 0.92),
+        foregroundColor: cs.primary,
+        elevation: 2,
+        textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+        visualDensity: VisualDensity.compact,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
     );
   }
@@ -799,12 +908,16 @@ class _BreakdownSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs    = theme.colorScheme;
+    final cs = theme.colorScheme;
     final muted = cs.onSurfaceVariant;
 
     final labelStyle = theme.textTheme.labelSmall?.copyWith(color: muted);
-    final typeStyle  = theme.textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w600);
-    final valStyle   = theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600);
+    final typeStyle = theme.textTheme.labelSmall?.copyWith(
+      fontWeight: FontWeight.w600,
+    );
+    final valStyle = theme.textTheme.bodySmall?.copyWith(
+      fontWeight: FontWeight.w600,
+    );
 
     Widget valueText(double v, {bool isSpent = false}) {
       final color = isSpent
@@ -836,9 +949,15 @@ class _BreakdownSection extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             SizedBox(width: labelW),
-            SizedBox(width: valueW, child: Text('Fixed',    style: typeStyle)),
+            SizedBox(
+              width: valueW,
+              child: Text('Fixed', style: typeStyle),
+            ),
             const SizedBox(width: 14),
-            SizedBox(width: valueW, child: Text('Variable', style: typeStyle)),
+            SizedBox(
+              width: valueW,
+              child: Text('Variable', style: typeStyle),
+            ),
           ],
         ),
         const SizedBox(height: 7),
@@ -846,7 +965,10 @@ class _BreakdownSection extends StatelessWidget {
         Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            SizedBox(width: labelW, child: Text('Estimated', style: labelStyle)),
+            SizedBox(
+              width: labelW,
+              child: Text('Estimated', style: labelStyle),
+            ),
             SizedBox(width: valueW, child: val(fixedEst)),
             const SizedBox(width: 14),
             SizedBox(width: valueW, child: val(varEst)),
@@ -857,7 +979,10 @@ class _BreakdownSection extends StatelessWidget {
         Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            SizedBox(width: labelW, child: Text('Spent', style: labelStyle)),
+            SizedBox(
+              width: labelW,
+              child: Text('Spent', style: labelStyle),
+            ),
             SizedBox(width: valueW, child: val(fixedSp, isSpent: true)),
             const SizedBox(width: 14),
             SizedBox(width: valueW, child: val(varSp, isSpent: true)),
@@ -871,7 +996,11 @@ class _BreakdownSection extends StatelessWidget {
 // ── Schedule info row (read-only) ─────────────────────────────────────────────
 
 class _ScheduleRow extends StatelessWidget {
-  const _ScheduleRow({required this.budget, required this.onEdit, required this.onReset});
+  const _ScheduleRow({
+    required this.budget,
+    required this.onEdit,
+    required this.onReset,
+  });
   final BudgetDto budget;
   final VoidCallback onEdit;
   final VoidCallback onReset;
@@ -896,7 +1025,7 @@ class _ScheduleRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cs    = Theme.of(context).colorScheme;
+    final cs = Theme.of(context).colorScheme;
     final muted = cs.onSurfaceVariant;
     final isScheduled = budget.resetType == 'scheduled';
 
@@ -929,7 +1058,10 @@ class _ScheduleRow extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 4),
-        Text('·', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: muted)),
+        Text(
+          '·',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(color: muted),
+        ),
         const SizedBox(width: 4),
         InkWell(
           borderRadius: BorderRadius.circular(20),
@@ -989,7 +1121,9 @@ class _CategoryConnectorList extends StatelessWidget {
                   // ── Category card ─────────────────────────────────────
                   Expanded(
                     child: _CategoryEstimateCard(
-                      key: ValueKey('${categories[i].id}-${categories[i].version}'),
+                      key: ValueKey(
+                        '${categories[i].id}-${categories[i].version}',
+                      ),
                       budgetId: budgetId,
                       category: categories[i],
                     ),
@@ -1038,33 +1172,19 @@ class _ConnectorPainter extends CustomPainter {
 
     // Vertical line from branch midpoint downward (only if not last)
     if (!isLast) {
-      canvas.drawLine(
-        Offset(midX, midY),
-        Offset(midX, size.height),
-        paint,
-      );
+      canvas.drawLine(Offset(midX, midY), Offset(midX, size.height), paint);
     }
 
     // Horizontal branch to the right
-    canvas.drawLine(
-      Offset(midX, midY),
-      Offset(size.width, midY),
-      paint,
-    );
+    canvas.drawLine(Offset(midX, midY), Offset(size.width, midY), paint);
 
     // Small dot at the branch point
-    canvas.drawCircle(
-      Offset(midX, midY),
-      2.5,
-      Paint()..color = color,
-    );
+    canvas.drawCircle(Offset(midX, midY), 2.5, Paint()..color = color);
   }
 
   @override
   bool shouldRepaint(_ConnectorPainter old) =>
-      old.isFirst != isFirst ||
-      old.isLast != isLast ||
-      old.color != color;
+      old.isFirst != isFirst || old.isLast != isLast || old.color != color;
 }
 
 // ── Empty categories hint ─────────────────────────────────────────────────────
@@ -1078,10 +1198,9 @@ class _EmptyCategoriesHint extends StatelessWidget {
       alignment: Alignment.center,
       child: Text(
         'No categories yet. Tap + Add New to create one.',
-        style: Theme.of(context)
-            .textTheme
-            .bodySmall
-            ?.copyWith(color: cs.onSurfaceVariant),
+        style: Theme.of(
+          context,
+        ).textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
         textAlign: TextAlign.center,
       ),
     );
@@ -1106,9 +1225,9 @@ class _CountBadge extends StatelessWidget {
       child: Text(
         '$count',
         style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              color: cs.onPrimaryContainer,
-              fontWeight: FontWeight.w700,
-            ),
+          color: cs.onPrimaryContainer,
+          fontWeight: FontWeight.w700,
+        ),
       ),
     );
   }
@@ -1131,8 +1250,8 @@ class _CategoryEstimateCard extends StatefulWidget {
 }
 
 class _CategoryEstimateCardState extends State<_CategoryEstimateCard> {
-  bool _editing  = false;
-  bool _saving   = false;
+  bool _editing = false;
+  bool _saving = false;
   bool _deleting = false;
   late final TextEditingController _name;
   late final TextEditingController _estimated;
@@ -1141,9 +1260,9 @@ class _CategoryEstimateCardState extends State<_CategoryEstimateCard> {
   @override
   void initState() {
     super.initState();
-    _name          = TextEditingController(text: widget.category.name);
-    _estimated     = TextEditingController(text: widget.category.estimated);
-    _categoryType  = widget.category.categoryType;
+    _name = TextEditingController(text: widget.category.name);
+    _estimated = TextEditingController(text: widget.category.estimated);
+    _categoryType = widget.category.categoryType;
   }
 
   @override
@@ -1151,9 +1270,9 @@ class _CategoryEstimateCardState extends State<_CategoryEstimateCard> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.category.version != widget.category.version ||
         oldWidget.category.id != widget.category.id) {
-      _name.text     = widget.category.name;
+      _name.text = widget.category.name;
       _estimated.text = widget.category.estimated;
-      _categoryType  = widget.category.categoryType;
+      _categoryType = widget.category.categoryType;
     }
   }
 
@@ -1166,10 +1285,10 @@ class _CategoryEstimateCardState extends State<_CategoryEstimateCard> {
 
   void _cancelEdit() {
     setState(() {
-      _editing       = false;
-      _name.text     = widget.category.name;
+      _editing = false;
+      _name.text = widget.category.name;
       _estimated.text = widget.category.estimated;
-      _categoryType  = widget.category.categoryType;
+      _categoryType = widget.category.categoryType;
     });
   }
 
@@ -1190,7 +1309,10 @@ class _CategoryEstimateCardState extends State<_CategoryEstimateCard> {
       );
       await app.refreshAccountsBudgets();
       if (!mounted) return;
-      setState(() { _editing = false; _saving = false; });
+      setState(() {
+        _editing = false;
+        _saving = false;
+      });
       showTopSnack(context, 'Category updated');
     } catch (e) {
       if (!mounted) return;
@@ -1237,10 +1359,10 @@ class _CategoryEstimateCardState extends State<_CategoryEstimateCard> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs    = theme.colorScheme;
-    final c     = widget.category;
+    final cs = theme.colorScheme;
+    final c = widget.category;
 
-    final spent     = double.tryParse(c.spent) ?? 0;
+    final spent = double.tryParse(c.spent) ?? 0;
     final remaining = double.tryParse(c.remaining) ?? 0;
     final estimated = double.tryParse(c.estimated) ?? 0;
     final remainingColor = remaining < 0 ? Colors.red.shade700 : cs.onSurface;
@@ -1249,13 +1371,20 @@ class _CategoryEstimateCardState extends State<_CategoryEstimateCard> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (_deleting)
-            LinearProgressIndicator(minHeight: 3, color: cs.error),
+          if (_deleting) LinearProgressIndicator(minHeight: 3, color: cs.error),
           Padding(
             padding: AppInsets.card,
             child: _editing
                 ? _buildEditMode(theme)
-                : _buildReadMode(theme, cs, c, estimated, spent, remaining, remainingColor),
+                : _buildReadMode(
+                    theme,
+                    cs,
+                    c,
+                    estimated,
+                    spent,
+                    remaining,
+                    remainingColor,
+                  ),
           ),
         ],
       ),
@@ -1271,14 +1400,14 @@ class _CategoryEstimateCardState extends State<_CategoryEstimateCard> {
     double remaining,
     Color remainingColor,
   ) {
-    final pct = estimated > 0
-        ? (spent / estimated).clamp(0.0, 1.0)
-        : 0.0;
+    final pct = estimated > 0 ? (spent / estimated).clamp(0.0, 1.0) : 0.0;
     final overSpent = remaining < 0;
-    final barColor  = overSpent ? cs.error : cs.primary;
+    final barColor = overSpent ? cs.error : cs.primary;
 
     final isFixed = c.categoryType == 'fixed';
-    final badgeBg = isFixed ? cs.primaryContainer.withAlpha(180) : Colors.transparent;
+    final badgeBg = isFixed
+        ? cs.primaryContainer.withAlpha(180)
+        : Colors.transparent;
     final badgeFg = isFixed ? cs.onPrimaryContainer : cs.onSurfaceVariant;
     final badgeBorder = isFixed
         ? BorderSide.none
@@ -1297,14 +1426,18 @@ class _CategoryEstimateCardState extends State<_CategoryEstimateCard> {
                   Flexible(
                     child: Text(
                       c.name,
-                      style: theme.textTheme.titleSmall
-                          ?.copyWith(fontWeight: FontWeight.w600),
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
                   const SizedBox(width: 6),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 7,
+                      vertical: 2,
+                    ),
                     decoration: BoxDecoration(
                       color: badgeBg,
                       borderRadius: BorderRadius.circular(20),
@@ -1328,7 +1461,8 @@ class _CategoryEstimateCardState extends State<_CategoryEstimateCard> {
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints(),
               style: IconButton.styleFrom(
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
               onPressed: () => setState(() => _editing = true),
             ),
             const SizedBox(width: 8),
@@ -1338,7 +1472,8 @@ class _CategoryEstimateCardState extends State<_CategoryEstimateCard> {
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints(),
               style: IconButton.styleFrom(
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
               onPressed: _delete,
             ),
           ],
@@ -1394,9 +1529,12 @@ class _CategoryEstimateCardState extends State<_CategoryEstimateCard> {
       children: [
         if (_saving) LinearProgressIndicator(minHeight: 3, color: cs.primary),
         const SizedBox(height: 2),
-        Text('Edit category',
-            style: theme.textTheme.titleSmall
-                ?.copyWith(fontWeight: FontWeight.w600)),
+        Text(
+          'Edit category',
+          style: theme.textTheme.titleSmall?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+        ),
         const SizedBox(height: 10),
         TextField(
           controller: _name,
@@ -1422,7 +1560,9 @@ class _CategoryEstimateCardState extends State<_CategoryEstimateCard> {
         const SizedBox(height: 10),
         _CategoryTypeToggle(
           value: _categoryType,
-          onChanged: _saving ? (_) {} : (v) => setState(() => _categoryType = v),
+          onChanged: _saving
+              ? (_) {}
+              : (v) => setState(() => _categoryType = v),
         ),
         const SizedBox(height: 6),
         Text(
@@ -1468,13 +1608,14 @@ class _BudgetEditSheetState extends State<_BudgetEditSheet> {
   @override
   void initState() {
     super.initState();
-    _name      = TextEditingController(text: widget.budget.name);
+    _name = TextEditingController(text: widget.budget.name);
     _resetType = widget.budget.resetType;
     if (_resetType == 'scheduled' && widget.budget.resetSchedule != null) {
-      final sched    = widget.budget.resetSchedule!;
+      final sched = widget.budget.resetSchedule!;
       final isLastDay = sched['is_last_day_of_month'] as bool? ?? false;
-      _resetDaySelection =
-          isLastDay ? 29 : ((sched['date'] as num?)?.toInt() ?? 1);
+      _resetDaySelection = isLastDay
+          ? 29
+          : ((sched['date'] as num?)?.toInt() ?? 1);
     } else {
       _resetDaySelection = 1;
     }
@@ -1539,11 +1680,13 @@ class _BudgetEditSheetState extends State<_BudgetEditSheet> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs    = theme.colorScheme;
+    final cs = theme.colorScheme;
 
     return Padding(
       padding: EdgeInsets.fromLTRB(
-        20, 8, 20,
+        20,
+        8,
+        20,
         MediaQuery.of(context).viewInsets.bottom + 24,
       ),
       child: Column(
@@ -1552,9 +1695,12 @@ class _BudgetEditSheetState extends State<_BudgetEditSheet> {
         children: [
           if (_saving) LinearProgressIndicator(minHeight: 3, color: cs.primary),
           const SizedBox(height: 4),
-          Text('Edit Budget',
-              style: theme.textTheme.titleLarge
-                  ?.copyWith(fontWeight: FontWeight.w600)),
+          Text(
+            'Edit Budget',
+            style: theme.textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
           const SizedBox(height: 16),
           TextField(
             controller: _name,
@@ -1569,7 +1715,9 @@ class _BudgetEditSheetState extends State<_BudgetEditSheet> {
             items: const [
               DropdownMenuItem(value: 'manual', child: Text('Manual')),
               DropdownMenuItem(
-                  value: 'scheduled', child: Text('Scheduled – Every Month')),
+                value: 'scheduled',
+                child: Text('Scheduled – Every Month'),
+              ),
             ],
             onChanged: (v) => setState(() => _resetType = v ?? 'manual'),
           ),
@@ -1579,8 +1727,7 @@ class _BudgetEditSheetState extends State<_BudgetEditSheet> {
               value: _resetDaySelection,
               decoration: const InputDecoration(labelText: 'Reset on'),
               items: _buildResetDayItems(),
-              onChanged: (v) =>
-                  setState(() => _resetDaySelection = v ?? 1),
+              onChanged: (v) => setState(() => _resetDaySelection = v ?? 1),
             ),
           ],
           const SizedBox(height: 20),
@@ -1605,10 +1752,10 @@ class _AddCategorySheet extends StatefulWidget {
 }
 
 class _AddCategorySheetState extends State<_AddCategorySheet> {
-  final _name      = TextEditingController();
+  final _name = TextEditingController();
   final _estimated = TextEditingController();
   String _categoryType = 'variable';
-  bool _saving         = false;
+  bool _saving = false;
 
   @override
   void dispose() {
@@ -1644,10 +1791,12 @@ class _AddCategorySheetState extends State<_AddCategorySheet> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs    = theme.colorScheme;
+    final cs = theme.colorScheme;
     return Padding(
       padding: EdgeInsets.fromLTRB(
-        20, 8, 20,
+        20,
+        8,
+        20,
         MediaQuery.of(context).viewInsets.bottom + 24,
       ),
       child: Column(
@@ -1656,9 +1805,12 @@ class _AddCategorySheetState extends State<_AddCategorySheet> {
         children: [
           if (_saving) LinearProgressIndicator(minHeight: 3, color: cs.primary),
           const SizedBox(height: 4),
-          Text('New Category',
-              style: theme.textTheme.titleLarge
-                  ?.copyWith(fontWeight: FontWeight.w600)),
+          Text(
+            'New Category',
+            style: theme.textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
           const SizedBox(height: 16),
           TextField(
             controller: _name,
@@ -1700,10 +1852,7 @@ class _AddCategorySheetState extends State<_AddCategorySheet> {
 // ── Category type toggle (Fixed / Variable) ───────────────────────────────────
 
 class _CategoryTypeToggle extends StatelessWidget {
-  const _CategoryTypeToggle({
-    required this.value,
-    required this.onChanged,
-  });
+  const _CategoryTypeToggle({required this.value, required this.onChanged});
 
   final String value;
   final ValueChanged<String> onChanged;
@@ -1711,7 +1860,7 @@ class _CategoryTypeToggle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs    = theme.colorScheme;
+    final cs = theme.colorScheme;
 
     Widget chip(String type, String label) {
       final selected = value == type;
@@ -1724,7 +1873,9 @@ class _CategoryTypeToggle extends StatelessWidget {
             color: selected ? cs.primaryContainer : cs.surface,
             borderRadius: BorderRadius.circular(20),
             border: Border.all(
-              color: selected ? cs.primary.withAlpha(120) : cs.outlineVariant.withAlpha(160),
+              color: selected
+                  ? cs.primary.withAlpha(120)
+                  : cs.outlineVariant.withAlpha(160),
               width: 1,
             ),
           ),
@@ -1744,7 +1895,9 @@ class _CategoryTypeToggle extends StatelessWidget {
       children: [
         Text(
           'Type',
-          style: theme.textTheme.labelSmall?.copyWith(color: cs.onSurfaceVariant),
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: cs.onSurfaceVariant,
+          ),
         ),
         const SizedBox(width: 10),
         chip('variable', 'Variable'),
@@ -1771,21 +1924,26 @@ class _StatRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs    = theme.colorScheme;
+    final cs = theme.colorScheme;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         SizedBox(
           width: 72,
-          child: Text(label,
-              style: theme.textTheme.labelSmall
-                  ?.copyWith(color: cs.onSurfaceVariant)),
+          child: Text(
+            label,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: cs.onSurfaceVariant,
+            ),
+          ),
         ),
-        Text(value,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: valueColor,
-              fontWeight: FontWeight.w700,
-            )),
+        Text(
+          value,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: valueColor,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
       ],
     );
   }
@@ -1809,7 +1967,7 @@ class _StatColumn extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs    = theme.colorScheme;
+    final cs = theme.colorScheme;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.center,
       mainAxisSize: MainAxisSize.min,
@@ -1821,26 +1979,34 @@ class _StatColumn extends StatelessWidget {
               Icon(icon, size: 11, color: cs.onSurfaceVariant),
               const SizedBox(width: 3),
             ],
-            Text(label,
-                textAlign: TextAlign.center,
-                style: theme.textTheme.labelSmall
-                    ?.copyWith(color: cs.onSurfaceVariant, height: 1.2)),
+            Text(
+              label,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: cs.onSurfaceVariant,
+                height: 1.2,
+              ),
+            ),
           ],
         ),
         const SizedBox(height: 4),
-        Text(value,
-            style: theme.textTheme.titleMedium?.copyWith(
-              color: valueColor,
-              fontWeight: FontWeight.w700,
-            )),
+        Text(
+          value,
+          style: theme.textTheme.titleMedium?.copyWith(
+            color: valueColor,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
         if (subtitle != null) ...[
           const SizedBox(height: 2),
-          Text(subtitle!,
-              textAlign: TextAlign.center,
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: cs.onSurfaceVariant.withAlpha(150),
-                fontSize: 9,
-              )),
+          Text(
+            subtitle!,
+            textAlign: TextAlign.center,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: cs.onSurfaceVariant.withAlpha(150),
+              fontSize: 9,
+            ),
+          ),
         ],
       ],
     );
@@ -1918,10 +2084,9 @@ class _VerticalBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs    = theme.colorScheme;
+    final cs = theme.colorScheme;
     final label = hasPlanned ? '${(pct * 100).round()}%' : '-';
-    final labelColor =
-        overBudget ? Colors.red.shade700 : cs.onSurfaceVariant;
+    final labelColor = overBudget ? Colors.red.shade700 : cs.onSurfaceVariant;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -1945,11 +2110,13 @@ class _VerticalBar extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 4),
-        Text(label,
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: labelColor,
-              fontWeight: FontWeight.w600,
-            )),
+        Text(
+          label,
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: labelColor,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
       ],
     );
   }
@@ -1972,12 +2139,19 @@ class _StatChip extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label,
-            style: theme.textTheme.labelSmall
-                ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-        Text(value,
-            style: theme.textTheme.bodyMedium
-                ?.copyWith(color: color, fontWeight: FontWeight.w600)),
+        Text(
+          label,
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+        Text(
+          value,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: color,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
       ],
     );
   }
@@ -1987,8 +2161,18 @@ class _StatChip extends StatelessWidget {
 
 String _shortMonth(int month) {
   const m = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
   ];
   return m[month - 1];
 }
@@ -2001,14 +2185,16 @@ class _PeriodRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final b  = budget;
+    final b = budget;
     final cs = Theme.of(context).colorScheme;
 
     final startDt = b.periodStart != null
         ? DateTime.parse(b.periodStart!).toLocal()
         : null;
     final endDt = b.periodEnd != null
-        ? DateTime.parse(b.periodEnd!).toLocal().subtract(const Duration(days: 1))
+        ? DateTime.parse(
+            b.periodEnd!,
+          ).toLocal().subtract(const Duration(days: 1))
         : null;
 
     final isScheduled = b.resetType == 'scheduled';
@@ -2022,7 +2208,7 @@ class _PeriodRow extends StatelessWidget {
 
     if (periodText == null) return const SizedBox.shrink();
 
-    final muteColor  = cs.onSurfaceVariant.withAlpha(140);
+    final muteColor = cs.onSurfaceVariant.withAlpha(140);
     const labelStyle = TextStyle(fontSize: 10.5, height: 1.2);
 
     return Padding(
@@ -2038,12 +2224,12 @@ class _PeriodRow extends StatelessWidget {
             color: muteColor,
           ),
           const SizedBox(width: 4),
-          Text(periodText,
-              style: labelStyle.copyWith(color: muteColor)),
+          Text(periodText, style: labelStyle.copyWith(color: muteColor)),
           if (isScheduled)
-            Text('  ·  Monthly',
-                style: labelStyle.copyWith(
-                    color: muteColor, letterSpacing: 0.2)),
+            Text(
+              '  ·  Monthly',
+              style: labelStyle.copyWith(color: muteColor, letterSpacing: 0.2),
+            ),
         ],
       ),
     );

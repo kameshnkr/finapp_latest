@@ -7,10 +7,12 @@ class FinappApi {
   final ApiClient _client;
 
   Future<Map<String, dynamic>> login(String email, String otp) async {
-    final j = await _client.postJson('/api/auth/login', body: {
-      'email': email,
-      'otp': otp,
-    }) as Map<String, dynamic>;
+    final j =
+        await _client.postJson(
+              '/api/auth/login',
+              body: {'email': email, 'otp': otp},
+            )
+            as Map<String, dynamic>;
     return j;
   }
 
@@ -21,13 +23,17 @@ class FinappApi {
   Future<List<AccountDto>> fetchAccounts() async {
     final j = await _client.getJson('/api/accounts/') as Map<String, dynamic>;
     final list = j['accounts'] as List<dynamic>? ?? [];
-    return list.map((e) => AccountDto.fromJson(e as Map<String, dynamic>)).toList();
+    return list
+        .map((e) => AccountDto.fromJson(e as Map<String, dynamic>))
+        .toList();
   }
 
   Future<List<BudgetDto>> fetchBudgets() async {
     final j = await _client.getJson('/api/budgets/') as Map<String, dynamic>;
     final list = j['budgets'] as List<dynamic>? ?? [];
-    return list.map((e) => BudgetDto.fromJson(e as Map<String, dynamic>)).toList();
+    return list
+        .map((e) => BudgetDto.fromJson(e as Map<String, dynamic>))
+        .toList();
   }
 
   Future<TransactionPageDto> fetchDrafts({
@@ -42,8 +48,9 @@ class FinappApi {
       'limit': limit.toString(),
       if (cursor != null) 'cursor': cursor,
     };
-    final j = await _client.getJson('/api/transactions/drafts', queryParams: params)
-        as Map<String, dynamic>;
+    final j =
+        await _client.getJson('/api/transactions/drafts', queryParams: params)
+            as Map<String, dynamic>;
     return TransactionPageDto.fromJson(j);
   }
 
@@ -59,8 +66,9 @@ class FinappApi {
       'limit': limit.toString(),
       if (cursor != null) 'cursor': cursor,
     };
-    final j = await _client.getJson('/api/transactions/settled', queryParams: params)
-        as Map<String, dynamic>;
+    final j =
+        await _client.getJson('/api/transactions/settled', queryParams: params)
+            as Map<String, dynamic>;
     return TransactionPageDto.fromJson(j);
   }
 
@@ -70,12 +78,17 @@ class FinappApi {
     required String amount,
     String? note,
   }) async {
-    final j = await _client.postJson('/api/transactions/drafts', body: {
-      'accountId': accountId,
-      'direction': direction,
-      'amount': amount,
-      'note': note,
-    }) as Map<String, dynamic>;
+    final j =
+        await _client.postJson(
+              '/api/transactions/drafts',
+              body: {
+                'accountId': accountId,
+                'direction': direction,
+                'amount': amount,
+                'note': note,
+              },
+            )
+            as Map<String, dynamic>;
     return TransactionDto.fromJson(j['transaction'] as Map<String, dynamic>);
   }
 
@@ -85,12 +98,15 @@ class FinappApi {
     String? budgetId,
     String? categoryId,
   }) async {
-    await _client.postJson('/api/transactions/settle', body: {
-      'transactionIds': transactionIds,
-      'transactionType': transactionType,
-      if (budgetId != null) 'budgetId': budgetId,
-      if (categoryId != null) 'categoryId': categoryId,
-    });
+    await _client.postJson(
+      '/api/transactions/settle',
+      body: {
+        'transactionIds': transactionIds,
+        'transactionType': transactionType,
+        if (budgetId != null) 'budgetId': budgetId,
+        if (categoryId != null) 'categoryId': categoryId,
+      },
+    );
   }
 
   Future<TransactionDto> updateSettled(
@@ -104,16 +120,21 @@ class FinappApi {
     String? categoryId,
     String? note,
   }) async {
-    final j = await _client.patchJson('/api/transactions/$id', body: {
-      'accountId': accountId,
-      'direction': direction,
-      'amount': amount,
-      'transactionType': transactionType,
-      'version': version,
-      'note': note,
-      if (budgetId != null) 'budgetId': budgetId,
-      if (categoryId != null) 'categoryId': categoryId,
-    }) as Map<String, dynamic>;
+    final j =
+        await _client.patchJson(
+              '/api/transactions/$id',
+              body: {
+                'accountId': accountId,
+                'direction': direction,
+                'amount': amount,
+                'transactionType': transactionType,
+                'version': version,
+                'note': note,
+                if (budgetId != null) 'budgetId': budgetId,
+                if (categoryId != null) 'categoryId': categoryId,
+              },
+            )
+            as Map<String, dynamic>;
     return TransactionDto.fromJson(j['transaction'] as Map<String, dynamic>);
   }
 
@@ -124,14 +145,17 @@ class FinappApi {
     required int version,
     required List<Map<String, String>> allocations,
   }) async {
-    await _client.patchJson('/api/accounts/$id', body: {
-      if (name != null) 'name': name,
-      'totalBalance': totalBalance,
-      'version': version,
-      'allocations': allocations
-          .map((a) => {'budgetId': a['budgetId']!, 'amount': a['amount']!})
-          .toList(),
-    });
+    await _client.patchJson(
+      '/api/accounts/$id',
+      body: {
+        if (name != null) 'name': name,
+        'totalBalance': totalBalance,
+        'version': version,
+        'allocations': allocations
+            .map((a) => {'budgetId': a['budgetId']!, 'amount': a['amount']!})
+            .toList(),
+      },
+    );
   }
 
   Future<void> updateBudgetMeta(
@@ -141,12 +165,15 @@ class FinappApi {
     Map<String, dynamic>? resetSchedule,
     required int version,
   }) async {
-    await _client.patchJson('/api/budgets/$id', body: {
-      'name': name,
-      'reset_type': resetType,
-      'reset_schedule': resetSchedule,
-      'version': version,
-    });
+    await _client.patchJson(
+      '/api/budgets/$id',
+      body: {
+        'name': name,
+        'reset_type': resetType,
+        'reset_schedule': resetSchedule,
+        'version': version,
+      },
+    );
   }
 
   Future<List<BudgetDto>> upsertCategory(
@@ -157,21 +184,26 @@ class FinappApi {
     String categoryType = 'variable',
     int? version,
   }) async {
-    final j = await _client.postJson('/api/budgets/$budgetId/categories', body: {
-      if (categoryId != null) 'id': categoryId,
-      'name': name,
-      'estimated': estimated,
-      'categoryType': categoryType,
-      if (version != null) 'version': version,
-    }) as Map<String, dynamic>;
+    final j =
+        await _client.postJson(
+              '/api/budgets/$budgetId/categories',
+              body: {
+                if (categoryId != null) 'id': categoryId,
+                'name': name,
+                'estimated': estimated,
+                'categoryType': categoryType,
+                if (version != null) 'version': version,
+              },
+            )
+            as Map<String, dynamic>;
     final list = j['budgets'] as List<dynamic>? ?? [];
-    return list.map((e) => BudgetDto.fromJson(e as Map<String, dynamic>)).toList();
+    return list
+        .map((e) => BudgetDto.fromJson(e as Map<String, dynamic>))
+        .toList();
   }
 
   Future<void> deleteCategory(String budgetId, String categoryId) async {
-    await _client.deletePath(
-      '/api/budgets/$budgetId/categories/$categoryId',
-    );
+    await _client.deletePath('/api/budgets/$budgetId/categories/$categoryId');
   }
 
   Future<void> resetBudget(String budgetId) async {
@@ -199,18 +231,74 @@ class FinappApi {
     required List<Map<String, String>> sources,
     required int version,
   }) async {
-    await _client.postJson('/api/accounts/$accountId/reallocate', body: {
-      'targetBudgetId': targetBudgetId,
-      'targetNewAmount': targetNewAmount,
-      'unallocatedDeductAmount': unallocatedDeductAmount,
-      'sources': sources
-          .map((s) => {
+    await _client.postJson(
+      '/api/accounts/$accountId/reallocate',
+      body: {
+        'targetBudgetId': targetBudgetId,
+        'targetNewAmount': targetNewAmount,
+        'unallocatedDeductAmount': unallocatedDeductAmount,
+        'sources': sources
+            .map(
+              (s) => {
                 'budgetId': s['budgetId']!,
                 'deductAmount': s['deductAmount']!,
-              })
-          .toList(),
-      'version': version,
-    });
+              },
+            )
+            .toList(),
+        'version': version,
+      },
+    );
+  }
+
+  // ── Budget funds reallocation (move allocations between Budgets across
+  // multiple accounts at once, user-picked portions — independent of the
+  // single-account [reallocateAllocation] above) ──────────────────────────
+
+  /// GET /api/banking/reallocation — every Budget's funds-available total +
+  /// full per-account allocation breakdown. The guided reallocation UI uses
+  /// this single payload to compute every default split/bound/cap locally —
+  /// no further round-trips needed until [executeBankingReallocation].
+  Future<BankingReallocationDataDto> fetchBankingReallocationData() async {
+    final j =
+        await _client.getJson('/api/banking/reallocation')
+            as Map<String, dynamic>;
+    return BankingReallocationDataDto.fromJson(j);
+  }
+
+  /// POST /api/banking/reallocation — atomically applies a fully-resolved
+  /// set of account-level allocation movements between Budgets, computed
+  /// client-side by the guided UI. Throws [ApiException] on failure
+  /// (insufficient funds in an account, etc.) — the caller should surface
+  /// the message verbatim.
+  Future<int> executeBankingReallocation({
+    required List<
+      ({
+        String accountId,
+        String fromBudgetId,
+        String toBudgetId,
+        String amount,
+      })
+    >
+    movements,
+  }) async {
+    final j =
+        await _client.postJson(
+              '/api/banking/reallocation',
+              body: {
+                'movements': movements
+                    .map(
+                      (m) => {
+                        'accountId': m.accountId,
+                        'fromBudgetId': m.fromBudgetId,
+                        'toBudgetId': m.toBudgetId,
+                        'amount': m.amount,
+                      },
+                    )
+                    .toList(),
+              },
+            )
+            as Map<String, dynamic>;
+    return j['movedCount'] as int;
   }
 
   Future<void> adjustBalance(
@@ -220,14 +308,17 @@ class FinappApi {
     required List<Map<String, String>> distributions,
     required int version,
   }) async {
-    await _client.postJson('/api/accounts/$accountId/adjustBalance', body: {
-      'newBalance': newBalance,
-      'unallocatedAmount': unallocatedAmount,
-      'distributions': distributions
-          .map((d) => {'budgetId': d['budgetId']!, 'amount': d['amount']!})
-          .toList(),
-      'version': version,
-    });
+    await _client.postJson(
+      '/api/accounts/$accountId/adjustBalance',
+      body: {
+        'newBalance': newBalance,
+        'unallocatedAmount': unallocatedAmount,
+        'distributions': distributions
+            .map((d) => {'budgetId': d['budgetId']!, 'amount': d['amount']!})
+            .toList(),
+        'version': version,
+      },
+    );
   }
 
   Future<void> createAccount(String name) async {
@@ -244,20 +335,24 @@ class FinappApi {
     if (isLatestStatement != null) {
       fields['isLatestStatement'] = isLatestStatement.toString();
     }
-    final j = await _client.postMultipartBytes(
-      '/api/statements/upload',
-      bytes: fileBytes,
-      fileName: fileName,
-      fields: fields,
-    ) as Map<String, dynamic>;
+    final j =
+        await _client.postMultipartBytes(
+              '/api/statements/upload',
+              bytes: fileBytes,
+              fileName: fileName,
+              fields: fields,
+            )
+            as Map<String, dynamic>;
     return StatementJobDto.fromUploadJson(j);
   }
 
   Future<StatementJobDto> getStatementStatus(String jobId) async {
-    final j = await _client.getJson(
-      '/api/statements/status',
-      queryParams: {'job_id': jobId},
-    ) as Map<String, dynamic>;
+    final j =
+        await _client.getJson(
+              '/api/statements/status',
+              queryParams: {'job_id': jobId},
+            )
+            as Map<String, dynamic>;
     return StatementJobDto.fromStatusJson(j);
   }
 
@@ -277,10 +372,7 @@ class FinappApi {
   }
 
   Future<void> rejectStatement(String jobId) async {
-    await _client.postJson(
-      '/api/statements/reject',
-      body: {'job_id': jobId},
-    );
+    await _client.postJson('/api/statements/reject', body: {'job_id': jobId});
   }
 
   Future<void> createBudget({
@@ -288,10 +380,13 @@ class FinappApi {
     String resetType = 'manual',
     Map<String, dynamic>? resetSchedule,
   }) async {
-    await _client.postJson('/api/budgets/', body: {
-      'name': name,
-      'reset_type': resetType,
-      if (resetSchedule != null) 'reset_schedule': resetSchedule,
-    });
+    await _client.postJson(
+      '/api/budgets/',
+      body: {
+        'name': name,
+        'reset_type': resetType,
+        if (resetSchedule != null) 'reset_schedule': resetSchedule,
+      },
+    );
   }
 }

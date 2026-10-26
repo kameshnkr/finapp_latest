@@ -119,6 +119,13 @@ class _ReallocatePotSheetState extends State<ReallocatePotSheet> {
   /// `TextField` and the other a custom tappable row.
   static const double _fieldHeight = 44;
 
+  /// Shared width for the "Available" column (both its header label and
+  /// every row's value) in Step 2's asset breakdown — keeping this one
+  /// constant in sync between the header and `_buildAssetRow` is what
+  /// keeps "Available"/"Transfer" centered directly above their actual
+  /// columns instead of drifting out of alignment.
+  static const double _availableColWidth = 64;
+
   bool _loading = true;
   String? _loadError;
   InvestmentsReallocationDataDto? _data;
@@ -166,6 +173,7 @@ class _ReallocatePotSheetState extends State<ReallocatePotSheet> {
   /// (untruncated) instead of ellipsis-clipped — tapping a row's name
   /// toggles its membership here, same pattern as the Pots/Assets tabs.
   final Set<String> _expandedAssetIds = {};
+  bool _giverPotNameExpanded = false;
 
   @override
   void initState() {
@@ -1369,41 +1377,100 @@ class _ReallocatePotSheetState extends State<ReallocatePotSheet> {
             ),
           ),
           const SizedBox(height: 6),
-          _buildAfterRow(theme, cs, giver.name, giverAfter),
-          const SizedBox(height: 4),
-          _buildAfterRow(theme, cs, receiver.name, receiverAfter),
+          _buildAfterRow(theme, cs, giver.name, _potValue(giver), giverAfter),
+          // Small down arrow between the two strips — purely visual,
+          // centered across the card — conveying "funds flow from the
+          // strip above into the strip below" at a glance, reinforcing
+          // the giver -> receiver direction already stated in the
+          // headline above.
+          Align(
+            alignment: Alignment.center,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Icon(
+                Icons.south_rounded,
+                size: 13,
+                color: cs.onSurfaceVariant.withAlpha(140),
+              ),
+            ),
+          ),
+          _buildAfterRow(
+            theme,
+            cs,
+            receiver.name,
+            _potValue(receiver),
+            receiverAfter,
+          ),
         ],
       ),
     );
   }
 
+  /// `potName    ₹current → ₹after` — showing both the current and
+  /// resulting value (not just the after value) so the size of the
+  /// change is clear at a glance, without having to mentally subtract
+  /// against the header subtitle's current balance. Rendered as its own
+  /// light "strip" (white fill + subtle shadow) so the name (left) and
+  /// the value (right) read as a single grouped row rather than loose
+  /// text floating on the card's own tinted background.
   Widget _buildAfterRow(
     ThemeData theme,
     ColorScheme cs,
     String potName,
-    double amount,
+    double before,
+    double after,
   ) {
-    return Row(
-      children: [
-        Expanded(
-          child: Text(
-            potName,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: cs.onSurface,
-              fontWeight: FontWeight.w700,
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: cs.surface,
+        borderRadius: BorderRadius.circular(10),
+        boxShadow: [
+          BoxShadow(
+            color: cs.shadow.withAlpha(18),
+            blurRadius: 4,
+            offset: const Offset(0, 1),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              potName,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: cs.onSurface,
+                fontWeight: FontWeight.w700,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
           ),
-        ),
-        const SizedBox(width: 8),
-        Text(
-          '₹${compactAmount(amount)}',
-          style: theme.textTheme.bodySmall?.copyWith(
-            fontWeight: FontWeight.w600,
+          const SizedBox(width: 8),
+          Text.rich(
+            TextSpan(
+              style: theme.textTheme.bodySmall,
+              children: [
+                TextSpan(
+                  text: '₹${compactAmount(before)} ',
+                  style: TextStyle(
+                    color: cs.onSurfaceVariant,
+                    fontWeight: FontWeight.w400,
+                  ),
+                ),
+                TextSpan(
+                  text: '\u2192 ',
+                  style: TextStyle(color: cs.onSurfaceVariant),
+                ),
+                TextSpan(
+                  text: '₹${compactAmount(after)}',
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ],
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -1432,7 +1499,7 @@ class _ReallocatePotSheetState extends State<ReallocatePotSheet> {
                   fontWeight: FontWeight.w600,
                 ),
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 18),
               Text(
                 'ASSET BREAKDOWN',
                 style: theme.textTheme.labelSmall?.copyWith(
@@ -1441,55 +1508,68 @@ class _ReallocatePotSheetState extends State<ReallocatePotSheet> {
                   letterSpacing: 1.0,
                 ),
               ),
-              // Short first line + the giver Pot's name pushed onto its own
-              // line (via the explicit '\n') so a long Pot name never
-              // crowds the sentence above it — "From" is toned down like
-              // the headline's connectors, while the name itself pops.
-              Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Text.rich(
-                  TextSpan(
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: cs.onSurfaceVariant,
-                    ),
-                    children: [
-                      const TextSpan(
-                        text: 'Choose asset portions to transfer\n',
-                      ),
-                      const TextSpan(text: 'From '),
-                      TextSpan(
-                        text: _giverPot?.name ?? '',
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          color: cs.onSurface,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ],
-                  ),
+              const SizedBox(height: 10),
+              Text(
+                'Choose asset portions to transfer from',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: cs.onSurfaceVariant,
                 ),
               ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  const Spacer(),
-                  Text(
-                    'Available',
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: cs.onSurfaceVariant,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  SizedBox(
-                    width: 110,
-                    child: Text(
-                      'Amount',
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        color: cs.onSurfaceVariant,
+              const SizedBox(height: 6),
+              // The table header itself: the giver Pot's name takes the
+              // place of a plain "Name" column label — reading as
+              // "<Pot name> | Available | Transfer" — so the Pot the list
+              // is broken down from is baked right into the table instead
+              // of sitting in a separate sentence above it. Ellipsis-
+              // truncated so a long name can't push the Available/Transfer
+              // columns out of place; tapping it expands the name onto its
+              // own wrapped line instead.
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => setState(
+                  () => _giverPotNameExpanded = !_giverPotNameExpanded,
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: ExpandableNameText(
+                        _giverPot?.name ?? '',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: cs.onSurface,
+                          fontWeight: FontWeight.w400,
+                        ),
+                        expanded: _giverPotNameExpanded,
                       ),
-                      textAlign: TextAlign.center,
                     ),
-                  ),
-                ],
+                    const SizedBox(width: 8),
+                    SizedBox(
+                      width: _availableColWidth,
+                      child: Text(
+                        'Available',
+                        textAlign: TextAlign.center,
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: cs.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    SizedBox(
+                      width: 110,
+                      child: Text(
+                        'Transfer',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: cs.onSurfaceVariant,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    const SizedBox(
+                      width: 13,
+                    ), // placeholder matching the arrow icon's width
+                  ],
+                ),
               ),
               const SizedBox(height: 6),
             ],
@@ -1797,15 +1877,18 @@ class _ReallocatePotSheetState extends State<ReallocatePotSheet> {
                   ),
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.only(left: 8, right: 16),
+              const SizedBox(width: 8),
+              SizedBox(
+                width: _availableColWidth,
                 child: Text(
                   '₹${compactAmount(row.available)}',
+                  textAlign: TextAlign.center,
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: cs.onSurfaceVariant,
                   ),
                 ),
               ),
+              const SizedBox(width: 12),
               SizedBox(
                 width: 110,
                 child: TextField(
