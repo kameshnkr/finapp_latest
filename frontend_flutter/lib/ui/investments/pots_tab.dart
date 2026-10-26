@@ -392,11 +392,26 @@ class _PotCard extends StatelessWidget {
                                   ),
                                   label: const Text('Transfer Funds'),
                                   style: ElevatedButton.styleFrom(
-                                    backgroundColor: cs.primaryContainer,
-                                    foregroundColor: cs.onPrimaryContainer,
+                                    // A light tint mixed directly from the
+                                    // real brand blue (`cs.primary`), rather
+                                    // than `cs.primaryContainer` — Material
+                                    // 3's generated container colour tends
+                                    // to skew slightly purple, which stood
+                                    // out against the vivid blue used
+                                    // everywhere else (tab pill, FAB, link
+                                    // text). Mixed heavily toward `cs.surface`
+                                    // (92%) for a subtle, barely-there tint —
+                                    // a solid `cs.primary` background read as
+                                    // too heavy/attention-grabbing here.
+                                    backgroundColor: Color.lerp(
+                                      cs.primary,
+                                      cs.surface,
+                                      0.92,
+                                    ),
+                                    foregroundColor: cs.primary,
                                     elevation: 2,
                                     padding: const EdgeInsets.symmetric(
-                                      horizontal: 18,
+                                      horizontal: 12,
                                       vertical: 11,
                                     ),
                                     shape: RoundedRectangleBorder(
